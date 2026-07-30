@@ -2,13 +2,19 @@ import type { Metadata } from 'next';
 
 import { MaterialCalculator } from '@/app/components/calculator/MaterialCalculator';
 
+import { getPublicCatalogue } from '@/lib/services/catalogue/publicCatalogue';
+
+export const revalidate = 300;
 export const metadata: Metadata = {
   title: 'Material calculator',
   description:
     'Estimate building finishing material quantities using dimensions, coverage, and wastage.',
 };
 
-export default function CalculatorPage() {
+export default async function CalculatorPage() {
+  const { products } = await getPublicCatalogue({
+    pageSize: 100,
+  });
   return (
     <div className="shell py-12 sm:py-16">
       <div className="max-w-3xl">
@@ -18,12 +24,12 @@ export default function CalculatorPage() {
         </h1>
         <p className="mt-5 text-base leading-7 text-muted">
           Use the same tested calculation module across this page and product
-          flows. Coverage figures remain placeholders until Specta approves the
-          product data.
+          flows. Published coverage and pricing are loaded from the
+          authoritative catalogue.
         </p>
       </div>
       <div className="mt-10">
-        <MaterialCalculator />
+        <MaterialCalculator products={products} />
       </div>
     </div>
   );

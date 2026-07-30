@@ -2,7 +2,7 @@ import { ArrowUpRight } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 
-import { getStartingPriceKobo } from '@/lib/data/placeholder-catalogue';
+import { getStartingPriceKobo } from '@/lib/utils/catalogue/getStartingPriceKobo';
 import type { Product } from '@/lib/types/catalogue';
 import { formatMoney } from '@/lib/utils/money/formatMoney';
 

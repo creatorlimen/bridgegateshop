@@ -3,45 +3,61 @@ import { Search } from 'lucide-react';
 import Link from 'next/link';
 
 import { CatalogueGrid } from '@/app/components/commerce/CatalogueGrid';
-import {
-  productCategories,
-  products,
-} from '@/lib/data/placeholder-catalogue';
+import { getPublicCatalogue } from '@/lib/services/catalogue/publicCatalogue';
 import { cn } from '@/lib/utils/cn';
 
 export const metadata: Metadata = {
   title: 'Shop building finishes',
   description:
-    'Browse placeholder POP Paint and White Bond products for the BridgegateShop launch catalogue.',
+    'Browse published building finishes, pack sizes, current prices, and availability.',
 };
+
+export const revalidate = 300;
 
 type ShopPageProps = {
   searchParams: Promise<{
     category?: string;
     q?: string;
+    cursor?: string;
   }>;
 };
 
+function getShopHref({
+  category,
+  query,
+  cursor,
+}: {
+  category?: string;
+  query?: string;
+  cursor?: string;
+}) {
+  const searchParameters = new URLSearchParams();
+
+  if (category && category !== 'all') {
+    searchParameters.set('category', category);
+  }
+
+  if (query) {
+    searchParameters.set('q', query);
+  }
+
+  if (cursor) {
+    searchParameters.set('cursor', cursor);
+  }
+
+  const queryString = searchParameters.toString();
+  return queryString ? `/shop?${queryString}` : '/shop';
+}
+
 export default async function ShopPage({ searchParams }: ShopPageProps) {
   const resolvedSearchParams = await searchParams;
-  const normalisedQuery =
-    resolvedSearchParams.q?.trim().toLocaleLowerCase() ?? '';
   const activeCategory = resolvedSearchParams.category ?? 'all';
-  const filteredProducts = products.filter((product) => {
-    const matchesCategory =
-      activeCategory === 'all' ||
-      product.categoryId ===
-        productCategories.find(
-          (category) => category.slug === activeCategory,
-        )?.id;
-    const matchesSearch =
-      !normalisedQuery ||
-      [product.name, product.categoryName, product.shortDescription].some(
-        (searchableValue) =>
-          searchableValue.toLocaleLowerCase().includes(normalisedQuery),
-      );
-
-    return matchesCategory && matchesSearch;
+  const searchQuery = resolvedSearchParams.q?.trim() ?? '';
+  const catalogue = await getPublicCatalogue({
+    categorySlug:
+      activeCategory === 'all' ? undefined : activeCategory,
+    query: searchQuery,
+    cursor: resolvedSearchParams.cursor,
   });
 
   return (
@@ -53,10 +69,14 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
             Materials selected for the finishing work.
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted">
-            Compare pack sizes and availability. All current prices are
-            placeholders and will be revalidated by the future commerce
-            service before checkout.
+            Compare pack sizes and current availability. Prices and
+            eligibility are revalidated by the server before checkout.
           </p>
+          {catalogue.dataSource === 'placeholder' ? (
+            <p className="mt-4 inline-flex rounded-full bg-amber/20 px-3 py-2 text-xs font-black text-clay">
+              Preview catalogue · commercial data awaits approval
+            </p>
+          ) : null}
         </div>
         <form
           className="flex min-h-14 items-center gap-3 rounded-full border border-ink/15 bg-paper px-5"
@@ -68,12 +88,20 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
           </label>
           <input
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted/70"
-            defaultValue={resolvedSearchParams.q}
+            defaultValue={searchQuery}
             id="catalogue-search"
+            minLength={2}
             name="q"
             placeholder="Search products"
             type="search"
           />
+          {activeCategory !== 'all' ? (
+            <input
+              name="category"
+              type="hidden"
+              value={activeCategory}
+            />
+          ) : null}
           <button
             className="rounded-full bg-ink px-4 py-2 text-xs font-black text-white"
             type="submit"
@@ -99,11 +127,11 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
                   ? 'bg-ink text-white'
                   : 'bg-paper hover:bg-ink/5',
               )}
-              href="/shop"
+              href={getShopHref({ query: searchQuery })}
             >
               All materials
             </Link>
-            {productCategories.map((category) => (
+            {catalogue.categories.map((category) => (
               <Link
                 className={cn(
                   'whitespace-nowrap rounded-full px-4 py-3 text-sm font-extrabold lg:rounded-xl',
@@ -111,7 +139,10 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
                     ? 'bg-ink text-white'
                     : 'bg-paper hover:bg-ink/5',
                 )}
-                href={`/shop?category=${category.slug}`}
+                href={getShopHref({
+                  category: category.slug,
+                  query: searchQuery,
+                })}
                 key={category.id}
               >
                 {category.name}
@@ -138,12 +169,28 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
         <div>
           <div className="mb-8 flex items-center justify-between gap-4">
             <p className="text-sm text-muted">
-              <strong className="text-ink">{filteredProducts.length}</strong>{' '}
-              {filteredProducts.length === 1 ? 'product' : 'products'}
+              <strong className="text-ink">
+                {catalogue.products.length}
+              </strong>{' '}
+              {catalogue.products.length === 1 ? 'product' : 'products'}
             </p>
             <p className="text-xs font-bold text-muted">Prices in NGN</p>
           </div>
-          <CatalogueGrid products={filteredProducts} />
+          <CatalogueGrid products={catalogue.products} />
+          {catalogue.nextCursor ? (
+            <div className="mt-12 flex justify-center">
+              <Link
+                className="button-dark"
+                href={getShopHref({
+                  category: activeCategory,
+                  query: searchQuery,
+                  cursor: catalogue.nextCursor,
+                })}
+              >
+                Next products
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

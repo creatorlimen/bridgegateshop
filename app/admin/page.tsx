@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { getActiveStaffContext } from '@/lib/auth/authorization';
 
@@ -40,6 +41,20 @@ export default async function AdminPage() {
             {staffContext.permissions.size} server-enforced capabilities
           </p>
         </article>
+        {staffContext.permissions.has('catalogue.read') ? (
+          <Link
+            className="rounded-2xl border border-ink/10 bg-ink p-6 text-paper transition hover:-translate-y-1"
+            href="/admin/catalogue"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-amber">
+              Catalogue
+            </p>
+            <h2 className="mt-3 text-xl font-black">Manage products →</h2>
+            <p className="mt-2 text-sm text-paper/60">
+              Categories, product content, variants, media, and publication.
+            </p>
+          </Link>
+        ) : null}
       </div>
     </section>
   );

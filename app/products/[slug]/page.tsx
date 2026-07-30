@@ -10,17 +10,16 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 
 import { addCartItemAction } from '@/app/actions/cart';
 import { ProductCard } from '@/app/components/commerce/ProductCard';
 import { StockPill } from '@/app/components/commerce/StockPill';
-import {
-  getProductBySlug,
-  getStartingPriceKobo,
-  products,
-} from '@/lib/data/placeholder-catalogue';
+import { getPublicProduct } from '@/lib/services/catalogue/publicCatalogue';
+import { resolveCatalogueRedirect } from '@/lib/services/catalogue/resolveCatalogueRedirect';
+import { getStartingPriceKobo } from '@/lib/utils/catalogue/getStartingPriceKobo';
 import { formatMoney } from '@/lib/utils/money/formatMoney';
+export const revalidate = 300;
 
 type ProductPageProps = {
   params: Promise<{
@@ -28,39 +27,50 @@ type ProductPageProps = {
   }>;
 };
 
-export function generateStaticParams() {
-  return products.map((product) => ({
-    slug: product.slug,
-  }));
-}
 
 export async function generateMetadata({
   params,
 }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const product = getProductBySlug(slug);
+  const productResult = await getPublicProduct(slug);
+  const product = productResult?.product;
+  const title = product?.seo?.title ?? product?.name ?? 'Product';
+  const description =
+    product?.seo?.description ?? product?.shortDescription;
 
   return {
-    title: product?.name ?? 'Product',
-    description: product?.shortDescription,
+    title,
+    description,
+    alternates: product?.seo?.canonicalUrl
+      ? { canonical: product.seo.canonicalUrl }
+      : undefined,
+    openGraph: product
+      ? {
+          title,
+          description,
+          images: product.seo?.imagePath
+            ? [{ url: product.seo.imagePath }]
+            : undefined,
+        }
+      : undefined,
   };
 }
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params;
-  const product = getProductBySlug(slug);
+  const productResult = await getPublicProduct(slug);
 
-  if (!product) {
+  if (!productResult) {
+    const redirectSlug = await resolveCatalogueRedirect('product', slug);
+
+    if (redirectSlug) {
+      permanentRedirect(`/products/${redirectSlug}`);
+    }
+
     notFound();
   }
 
-  const relatedProducts = products
-    .filter(
-      (relatedProduct) =>
-        relatedProduct.id !== product.id &&
-        relatedProduct.categoryId === product.categoryId,
-    )
-    .slice(0, 3);
+  const { product, relatedProducts } = productResult;
 
   return (
     <div className="shell py-8 sm:py-12">
@@ -73,10 +83,11 @@ export default async function ProductPage({ params }: ProductPageProps) {
       </Link>
 
       <section className="mt-7 grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-14">
-        <div className="relative min-h-[30rem] overflow-hidden rounded-[2rem] bg-paper sm:min-h-[39rem]">
+        <div>
+          <div className="relative min-h-[30rem] overflow-hidden rounded-[2rem] bg-paper sm:min-h-[39rem]">
           <Image
             className="object-cover"
-            src={product.imagePath}
+            src={product.detailImagePath ?? product.imagePath}
             alt={product.imageAlt}
             fill
             priority
@@ -88,10 +99,28 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 {product.badge}
               </span>
             ) : null}
-            <span className="rounded-full bg-clay px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.1em] text-white">
-              Placeholder product
-            </span>
+            {productResult.dataSource === 'placeholder' ? (
+              <span className="rounded-full bg-clay px-3 py-2 text-[0.68rem] font-black uppercase tracking-[0.1em] text-white">
+                Preview product
+              </span>
+            ) : null}
           </div>
+          </div>
+          {product.galleryImages && product.galleryImages.length > 1 ? (
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {product.galleryImages.slice(0, 6).map((galleryImage) => (
+                <Image
+                  alt={galleryImage.alt}
+                  className="aspect-square rounded-2xl object-cover"
+                  height={240}
+                  key={galleryImage.id}
+                  sizes="(max-width: 1024px) 33vw, 16vw"
+                  src={galleryImage.path}
+                  width={240}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="lg:py-5">
@@ -114,9 +143,11 @@ export default async function ProductPage({ params }: ProductPageProps) {
                 {formatMoney(getStartingPriceKobo(product))}
               </span>
             </p>
-            <p className="rounded-full bg-amber/20 px-3 py-2 text-xs font-bold">
-              Preview price
-            </p>
+            {productResult.dataSource === 'placeholder' ? (
+              <p className="rounded-full bg-amber/20 px-3 py-2 text-xs font-bold">
+                Preview price
+              </p>
+            ) : null}
           </div>
 
           <form action={addCartItemAction} className="mt-7">
@@ -131,6 +162,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
                     <input
                       className="peer sr-only"
                       defaultChecked={variantIndex === 0}
+                      disabled={variant.stockState === 'outOfStock'}
                       name="variantId"
                       type="radio"
                       value={variant.id}
@@ -166,8 +198,12 @@ export default async function ProductPage({ params }: ProductPageProps) {
                   type="number"
                 />
               </label>
-              <button className="button-primary min-h-14 flex-1" type="submit">
-                Add to cart
+              <button
+                className="button-primary min-h-14 flex-1 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={product.status === 'outOfStock'}
+                type="submit"
+              >
+                {product.status === 'outOfStock' ? 'Out of stock' : 'Add to cart'}
                 <Package aria-hidden="true" size={18} />
               </button>
             </div>
@@ -244,8 +280,9 @@ export default async function ProductPage({ params }: ProductPageProps) {
           </ol>
           <p className="mt-8 flex items-start gap-3 border-t border-white/12 pt-6 text-xs leading-5 text-white/45">
             <Check aria-hidden="true" className="mt-0.5 shrink-0" size={15} />
-            Replace these notes with the approved technical product sheet
-            before public launch.
+            {productResult.dataSource === 'placeholder'
+              ? 'Replace these notes with the approved technical product sheet before public launch.'
+              : 'Always follow the approved product sheet and site-specific safety guidance.'}
           </p>
         </div>
       </section>

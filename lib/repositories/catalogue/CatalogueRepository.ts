@@ -41,10 +41,17 @@ export type CatalogueProductPage = {
 
 export interface CatalogueRepository {
   listActiveCategories(): Promise<CategoryRecord[]>;
+  findActiveCategoryById(
+    categoryId: string,
+  ): Promise<CategoryRecord | null>;
   findActiveCategoryBySlug(slug: string): Promise<CategoryRecord | null>;
   listActiveProducts(
     input?: ListActiveProductsInput,
   ): Promise<CatalogueProductPage>;
+  findActiveProductById(productId: string): Promise<ProductRecord | null>;
+  findActiveProductsByIds(
+    productIds: readonly string[],
+  ): Promise<ProductRecord[]>;
   findActiveProductBySlug(slug: string): Promise<ProductRecord | null>;
   listActiveVariantsForProduct(
     productId: string,
@@ -55,6 +62,9 @@ export interface CatalogueRepository {
   findReadyProductMediaById(
     mediaId: string,
   ): Promise<ProductMediaRecord | null>;
+  listReadyProductMediaForProduct(
+    productId: string,
+  ): Promise<ProductMediaRecord[]>;
 }
 
 export class CatalogueDataError extends Error {
@@ -196,6 +206,28 @@ class FirestoreCatalogueRepository implements CatalogueRepository {
     );
   }
 
+  async findActiveCategoryById(
+    categoryId: string,
+  ): Promise<CategoryRecord | null> {
+    const parsedCategoryId = parseDocumentId(categoryId, 'Category ID');
+    const categoryDocument = await this.firestore
+      .collection(firestoreCollections.categories)
+      .doc(parsedCategoryId)
+      .get();
+
+    if (!categoryDocument.exists) {
+      return null;
+    }
+
+    const category = parseRecord(
+      categoryDocument,
+      firestoreCollections.categories,
+      categoryDocumentSchema,
+    );
+
+    return category.status === 'active' ? category : null;
+  }
+
   async findActiveCategoryBySlug(
     slug: string,
   ): Promise<CategoryRecord | null> {
@@ -286,6 +318,63 @@ class FirestoreCatalogueRepository implements CatalogueRepository {
     };
   }
 
+  async findActiveProductById(
+    productId: string,
+  ): Promise<ProductRecord | null> {
+    const parsedProductId = parseDocumentId(productId, 'Product ID');
+    const productDocument = await this.firestore
+      .collection(firestoreCollections.products)
+      .doc(parsedProductId)
+      .get();
+
+    if (!productDocument.exists) {
+      return null;
+    }
+
+    const product = parseRecord(
+      productDocument,
+      firestoreCollections.products,
+      productDocumentSchema,
+    );
+
+    return product.status === 'active' ||
+      product.status === 'outOfStock'
+      ? product
+      : null;
+  }
+
+  async findActiveProductsByIds(
+    productIds: readonly string[],
+  ): Promise<ProductRecord[]> {
+    const uniqueProductIds = [...new Set(productIds)].slice(0, 12);
+
+    if (uniqueProductIds.length === 0) {
+      return [];
+    }
+
+    const productSnapshots = await this.firestore.getAll(
+      ...uniqueProductIds.map((productId) =>
+        this.firestore
+          .collection(firestoreCollections.products)
+          .doc(parseDocumentId(productId, 'Product ID')),
+      ),
+    );
+
+    return productSnapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) =>
+        parseRecord(
+          snapshot,
+          firestoreCollections.products,
+          productDocumentSchema,
+        ),
+      )
+      .filter(
+        (product) =>
+          product.status === 'active' || product.status === 'outOfStock',
+      );
+  }
+
   async findActiveProductBySlug(
     slug: string,
   ): Promise<ProductRecord | null> {
@@ -370,6 +459,33 @@ class FirestoreCatalogueRepository implements CatalogueRepository {
     );
 
     return media.processingState === 'ready' ? media : null;
+  }
+
+  async listReadyProductMediaForProduct(
+    productId: string,
+  ): Promise<ProductMediaRecord[]> {
+    const mediaSnapshot = await this.firestore
+      .collection(firestoreCollections.productMedia)
+      .where(
+        'productId',
+        '==',
+        parseDocumentId(productId, 'Product ID'),
+      )
+      .get();
+
+    return mediaSnapshot.docs
+      .map((mediaDocument) =>
+        parseRecord(
+          mediaDocument,
+          firestoreCollections.productMedia,
+          productMediaDocumentSchema,
+        ),
+      )
+      .filter((media) => media.processingState === 'ready')
+      .sort(
+        (leftMedia, rightMedia) =>
+          leftMedia.sortOrder - rightMedia.sortOrder,
+      );
   }
 }
 

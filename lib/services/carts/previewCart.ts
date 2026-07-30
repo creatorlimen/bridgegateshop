@@ -1,6 +1,8 @@
+import 'server-only';
+
 import { cookies } from 'next/headers';
 
-import { products } from '@/lib/data/placeholder-catalogue';
+import { getPublicProductByVariantId } from '@/lib/services/catalogue/publicCatalogue';
 
 const previewCartCookieName = 'bridgegate_preview_cart';
 const maximumCartLines = 50;
@@ -70,24 +72,16 @@ async function writePreviewCartItems(cartItems: PreviewCartItem[]) {
   });
 }
 
-function findVariant(variantId: string) {
-  for (const product of products) {
-    const productVariant = product.variants.find(
-      (variant) => variant.id === variantId,
-    );
+export async function addPreviewCartItem(
+  variantId: string,
+  quantity: number,
+) {
+  const catalogueEntry = await getPublicProductByVariantId(variantId);
 
-    if (productVariant) {
-      return { product, productVariant };
-    }
-  }
-
-  return undefined;
-}
-
-export async function addPreviewCartItem(variantId: string, quantity: number) {
-  const catalogueEntry = findVariant(variantId);
-
-  if (!catalogueEntry || catalogueEntry.productVariant.stockState === 'outOfStock') {
+  if (
+    !catalogueEntry ||
+    catalogueEntry.variant.stockState === 'outOfStock'
+  ) {
     throw new Error('The selected product variant is unavailable.');
   }
 
@@ -128,12 +122,15 @@ export async function updatePreviewCartItem(
     throw new Error('Quantity must be between 1 and 100.');
   }
 
-  const cartItems = await readPreviewCartItems();
+  const [cartItems, catalogueEntry] = await Promise.all([
+    readPreviewCartItems(),
+    getPublicProductByVariantId(variantId),
+  ]);
   const existingItem = cartItems.find(
     (cartItem) => cartItem.variantId === variantId,
   );
 
-  if (!existingItem || !findVariant(variantId)) {
+  if (!existingItem || !catalogueEntry) {
     throw new Error('The selected cart item is unavailable.');
   }
 
@@ -151,15 +148,21 @@ export async function removePreviewCartItem(variantId: string) {
 
 export async function getPreviewCartLines(): Promise<PreviewCartLine[]> {
   const cartItems = await readPreviewCartItems();
+  const catalogueEntries = await Promise.all(
+    cartItems.map(async (cartItem) => ({
+      cartItem,
+      catalogueEntry: await getPublicProductByVariantId(
+        cartItem.variantId,
+      ),
+    })),
+  );
 
-  return cartItems.flatMap((cartItem) => {
-    const catalogueEntry = findVariant(cartItem.variantId);
-
+  return catalogueEntries.flatMap(({ cartItem, catalogueEntry }) => {
     if (!catalogueEntry) {
       return [];
     }
 
-    const { product, productVariant } = catalogueEntry;
+    const { product, variant } = catalogueEntry;
 
     return [
       {
@@ -167,12 +170,12 @@ export async function getPreviewCartLines(): Promise<PreviewCartLine[]> {
         productId: product.id,
         productSlug: product.slug,
         productName: product.name,
-        variantName: productVariant.name,
-        packageLabel: productVariant.packageLabel,
+        variantName: variant.name,
+        packageLabel: variant.packageLabel,
         imagePath: product.imagePath,
         imageAlt: product.imageAlt,
-        unitPriceKobo: productVariant.priceKobo,
-        lineTotalKobo: productVariant.priceKobo * cartItem.quantity,
+        unitPriceKobo: variant.priceKobo,
+        lineTotalKobo: variant.priceKobo * cartItem.quantity,
       },
     ];
   });

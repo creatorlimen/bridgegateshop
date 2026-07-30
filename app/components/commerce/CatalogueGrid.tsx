@@ -13,8 +13,8 @@ export function CatalogueGrid({
       <div className="rounded-[1.75rem] border border-dashed border-ink/25 bg-paper p-10 text-center">
         <h2 className="text-xl font-black">No matching materials yet</h2>
         <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted">
-          Try another category or search term. The placeholder catalogue will
-          expand when approved product data arrives.
+          Try another category or search term. Published materials will
+          appear here when they match the current filters.
         </p>
       </div>
     );

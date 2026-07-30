@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Search } from 'lucide-react';
 
 import { CatalogueGrid } from '@/app/components/commerce/CatalogueGrid';
-import { products } from '@/lib/data/placeholder-catalogue';
+import { getPublicCatalogue } from '@/lib/services/catalogue/publicCatalogue';
 
 export const metadata: Metadata = {
   title: 'Search',
@@ -11,6 +11,8 @@ export const metadata: Metadata = {
     follow: true,
   },
 };
+
+export const revalidate = 300;
 
 type SearchPageProps = {
   searchParams: Promise<{
@@ -21,19 +23,9 @@ type SearchPageProps = {
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const resolvedSearchParams = await searchParams;
   const searchQuery = resolvedSearchParams.q?.trim() ?? '';
-  const normalisedSearchQuery = searchQuery.toLocaleLowerCase();
-  const matchingProducts = normalisedSearchQuery
-    ? products.filter((product) =>
-        [
-          product.name,
-          product.categoryName,
-          product.shortDescription,
-          product.description,
-        ].some((searchableValue) =>
-          searchableValue.toLocaleLowerCase().includes(normalisedSearchQuery),
-        ),
-      )
-    : [];
+  const catalogue = searchQuery
+    ? await getPublicCatalogue({ query: searchQuery, pageSize: 30 })
+    : null;
 
   return (
     <div className="shell py-12 sm:py-16">
@@ -54,6 +46,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             className="min-w-0 flex-1 bg-transparent text-base outline-none"
             defaultValue={searchQuery}
             id="site-search"
+            minLength={2}
             name="q"
             placeholder="Try “POP paint” or “White Bond”"
             type="search"
@@ -64,18 +57,18 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         </form>
       </div>
 
-      {searchQuery ? (
+      {searchQuery && catalogue ? (
         <div className="mt-14">
           <p className="mb-8 text-sm text-muted">
-            {matchingProducts.length} results for{' '}
+            {catalogue.products.length} results for{' '}
             <strong className="text-ink">“{searchQuery}”</strong>
           </p>
-          <CatalogueGrid products={matchingProducts} />
+          <CatalogueGrid products={catalogue.products} />
         </div>
       ) : (
         <p className="mx-auto mt-10 max-w-xl text-center text-sm leading-6 text-muted">
-          Search currently covers the active placeholder catalogue. Published
-          Knowledge Hub content will join these results in Release 2.
+          Search covers active catalogue products. Published Knowledge Hub
+          content joins these results in Release 2.
         </p>
       )}
     </div>

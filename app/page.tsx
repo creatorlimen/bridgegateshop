@@ -15,10 +15,9 @@ import Link from 'next/link';
 
 import { ProductCard } from '@/app/components/commerce/ProductCard';
 import { SectionHeading } from '@/app/components/ui/SectionHeading';
-import {
-  productCategories,
-  products,
-} from '@/lib/data/placeholder-catalogue';
+import { getPublicCatalogue } from '@/lib/services/catalogue/publicCatalogue';
+
+export const revalidate = 300;
 
 const trustItems = [
   {
@@ -59,7 +58,10 @@ const orderingSteps = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const { categories, products } = await getPublicCatalogue({
+    pageSize: 12,
+  });
   return (
     <>
       <section className="shell pb-8 pt-6 sm:pt-8">
@@ -172,7 +174,7 @@ export default function HomePage() {
           <SectionHeading
             eyebrow="Featured materials"
             title="A focused catalogue for better finishes."
-            description="Launch products are shown with placeholder commercial data until Specta supplies the approved catalogue."
+            description="Browse featured materials with current published pricing, availability, and pack options."
           />
           <Link
             className="inline-flex shrink-0 items-center gap-2 text-sm font-black hover:text-clay"
@@ -202,7 +204,7 @@ export default function HomePage() {
           />
 
           <div className="mt-12 grid gap-5 lg:grid-cols-2">
-            {productCategories.map((category, categoryIndex) => (
+            {categories.map((category, categoryIndex) => (
               <Link
                 className="group relative isolate min-h-[23rem] overflow-hidden rounded-[2rem] border border-ink/10 p-7 sm:p-10"
                 href={`/shop/category/${category.slug}`}

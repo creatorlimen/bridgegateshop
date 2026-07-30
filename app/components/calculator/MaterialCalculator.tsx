@@ -4,21 +4,25 @@ import { useMemo, useState } from 'react';
 import { Calculator, Plus, Ruler } from 'lucide-react';
 
 import { addCartItemAction } from '@/app/actions/cart';
-import { products } from '@/lib/data/placeholder-catalogue';
+import type { Product } from '@/lib/types/catalogue';
 import { calculateMaterials } from '@/lib/utils/calculator/calculateMaterials';
 import { formatMoney } from '@/lib/utils/money/formatMoney';
 
-const calculatorVariants = products.flatMap((product) =>
-  product.variants
-    .filter((variant) => variant.coverageSquareMetres)
-    .map((variant) => ({
-      productName: product.name,
-      productSlug: product.slug,
-      variant,
-    })),
-);
 
-export function MaterialCalculator() {
+export function MaterialCalculator({
+  products,
+}: {
+  products: Product[];
+}) {
+  const calculatorVariants = useMemo(
+    () =>
+      products.flatMap((product) =>
+        product.variants
+          .filter((variant) => variant.coverageSquareMetres)
+          .map((variant) => ({ productName: product.name, variant })),
+      ),
+    [products],
+  );
   const [selectedVariantId, setSelectedVariantId] = useState(
     calculatorVariants[0]?.variant.id ?? '',
   );

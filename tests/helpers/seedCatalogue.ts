@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 
 import { firestoreCollections } from '@/lib/firebase/collections';
 import { catalogueSeedFixture } from '@/tests/fixtures/catalogue';
+import { createSearchTokenProjection } from '@/lib/utils/catalogue/searchTokens';
 
 export async function seedCatalogue(firestore: Firestore) {
   const writeBatch = firestore.batch();
@@ -12,6 +13,18 @@ export async function seedCatalogue(firestore: Firestore) {
         .collection(firestoreCollections.categories)
         .doc(category.id),
       category.data,
+    );
+    writeBatch.set(
+      firestore
+        .collection(firestoreCollections.slugClaims)
+        .doc(`category:${category.data.slug}`),
+      {
+        schemaVersion: 1,
+        ownerId: category.id,
+        ownerType: 'category',
+        claimedAt: category.data.createdAt,
+        claimedBy: category.data.createdBy,
+      },
     );
   }
 
@@ -30,6 +43,50 @@ export async function seedCatalogue(firestore: Firestore) {
         ownerType: 'product',
         claimedAt: product.data.createdAt,
         claimedBy: product.data.createdBy,
+      },
+    );
+    const category = catalogueSeedFixture.categories.find(
+      (categoryRecord) => categoryRecord.id === product.data.categoryId,
+    );
+
+    if (!category) {
+      throw new Error('Fixture product category is missing.');
+    }
+
+    const tokenProjection = createSearchTokenProjection([
+      product.data.name,
+      product.data.shortDescription,
+      product.data.description,
+      category.data.name,
+      ...category.data.searchKeywords,
+      ...product.data.searchKeywords,
+    ]);
+    const imageMediaId = product.data.primaryMediaId;
+
+    if (!imageMediaId) {
+      throw new Error('Published fixture product media is missing.');
+    }
+
+    writeBatch.set(
+      firestore
+        .collection(firestoreCollections.searchDocuments)
+        .doc(`product:${product.id}`),
+      {
+        schemaVersion: 1,
+        type: 'product',
+        productId: product.id,
+        title: product.data.name,
+        slug: product.data.slug,
+        excerpt: product.data.shortDescription,
+        categoryId: product.data.categoryId,
+        imageMediaId,
+        minimumPriceKobo: product.data.priceSummary.minimumPriceKobo,
+        maximumPriceKobo: product.data.priceSummary.maximumPriceKobo,
+        currency: 'NGN',
+        stockState: product.data.availabilitySummary.stockState,
+        exactTokens: tokenProjection.exactTokens,
+        searchTokens: tokenProjection.searchTokens,
+        updatedAt: product.data.updatedAt,
       },
     );
   }
