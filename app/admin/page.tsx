@@ -55,6 +55,22 @@ export default async function AdminPage() {
             </p>
           </Link>
         ) : null}
+        {staffContext.permissions.has('inventory.read') ? (
+          <Link
+            className="rounded-2xl border border-ink/10 bg-paper p-6 transition hover:-translate-y-1"
+            href="/admin/inventory"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-clay">
+              Inventory
+            </p>
+            <h2 className="mt-3 text-xl font-black">
+              Manage stock →
+            </h2>
+            <p className="mt-2 text-sm text-muted">
+              Balances, reservations, adjustments, and movement history.
+            </p>
+          </Link>
+        ) : null}
       </div>
     </section>
   );

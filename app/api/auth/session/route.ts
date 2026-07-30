@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { getCommerceDataSource } from '@/lib/config/commerceDataSource';
 import { getServerEnvironment } from '@/lib/config/serverEnvironment';
 import { getFirebaseAdminAuth } from '@/lib/firebase/admin';
 import { csrfCookieName, csrfTokenMatches } from '@/lib/security/csrf';
 import { requestHasTrustedOrigin } from '@/lib/security/requestOrigin';
+import {
+  authoritativeCartCookieName,
+  mergeGuestCartForOwner,
+} from '@/lib/services/carts/cartSession';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -30,15 +35,19 @@ function createErrorResponse(
   );
 }
 
+function getRequestCookie(request: Request, cookieName: string) {
+  return request.headers
+    .get('cookie')
+    ?.split(';')
+    .map((cookiePart) => cookiePart.trim())
+    .find((cookiePart) => cookiePart.startsWith(`${cookieName}=`))
+    ?.slice(cookieName.length + 1);
+}
+
 function requestHasValidCsrfToken(request: Request) {
   return csrfTokenMatches(
     request.headers.get('x-csrf-token'),
-    request.headers
-      .get('cookie')
-      ?.split(';')
-      .map((cookiePart) => cookiePart.trim())
-      .find((cookiePart) => cookiePart.startsWith(`${csrfCookieName}=`))
-      ?.slice(csrfCookieName.length + 1),
+    getRequestCookie(request, csrfCookieName),
   );
 }
 
@@ -75,7 +84,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const parsedRequest = sessionRequestSchema.safeParse(untrustedRequestBody);
+  const parsedRequest = sessionRequestSchema.safeParse(
+    untrustedRequestBody,
+  );
 
   if (!parsedRequest.success) {
     return createErrorResponse(
@@ -104,6 +115,24 @@ export async function POST(request: Request) {
       );
     }
 
+    let guestCartMerged = false;
+
+    if (getCommerceDataSource() === 'firestore') {
+      try {
+        const mergeResult = await mergeGuestCartForOwner(
+          getRequestCookie(request, authoritativeCartCookieName),
+          decodedIdToken.uid,
+        );
+        guestCartMerged = mergeResult.merged;
+      } catch {
+        return createErrorResponse(
+          409,
+          'CART_MERGE_FAILED',
+          'Your cart could not be merged safely. Please retry sign-in.',
+        );
+      }
+    }
+
     const sessionCookie = await firebaseAdminAuth.createSessionCookie(
       parsedRequest.data.idToken,
       {
@@ -130,6 +159,17 @@ export async function POST(request: Request) {
         secure: process.env.NODE_ENV === 'production',
       },
     );
+
+    if (guestCartMerged) {
+      response.cookies.set(authoritativeCartCookieName, '', {
+        expires: new Date(0),
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      });
+    }
+
     response.cookies.set(csrfCookieName, '', {
       expires: new Date(0),
       httpOnly: true,

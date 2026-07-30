@@ -11,6 +11,10 @@ export const firestoreCollections = {
   auditEvents: 'auditEvents',
   outboxEvents: 'outboxEvents',
   inventoryBalances: 'inventoryBalances',
+  inventoryReservations: 'inventoryReservations',
+  inventoryMovements: 'inventoryMovements',
+  carts: 'carts',
+  cartItems: 'items',
   userProfiles: 'userProfiles',
   staffMemberships: 'staffMemberships',
 } as const;

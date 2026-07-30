@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 
 import { firestoreCollections } from '@/lib/firebase/collections';
 import { catalogueSeedFixture } from '@/tests/fixtures/catalogue';
+import { inventoryBalanceSeedRecords } from '@/tests/fixtures/inventory';
 import { createSearchTokenProjection } from '@/lib/utils/catalogue/searchTokens';
 
 export async function seedCatalogue(firestore: Firestore) {
@@ -108,6 +109,15 @@ export async function seedCatalogue(firestore: Firestore) {
         claimedAt: variant.data.createdAt,
         claimedBy: variant.data.createdBy,
       },
+    );
+  }
+
+  for (const balance of inventoryBalanceSeedRecords) {
+    writeBatch.set(
+      firestore
+        .collection(firestoreCollections.inventoryBalances)
+        .doc(balance.id),
+      balance.data,
     );
   }
 

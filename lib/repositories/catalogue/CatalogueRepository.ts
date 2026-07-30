@@ -263,7 +263,11 @@ class FirestoreCatalogueRepository implements CatalogueRepository {
 
     let productQuery: Query = this.firestore
       .collection(firestoreCollections.products)
-      .where('status', '==', 'active');
+      .where(
+        'status',
+        'in',
+        ['active', 'outOfStock'] satisfies ProductRecord['status'][],
+      );
 
     if (categoryId !== undefined) {
       productQuery = productQuery.where(
@@ -381,7 +385,11 @@ class FirestoreCatalogueRepository implements CatalogueRepository {
     const productSnapshot = await this.firestore
       .collection(firestoreCollections.products)
       .where('slug', '==', parseCatalogueSlug(slug))
-      .where('status', '==', 'active')
+      .where(
+        'status',
+        'in',
+        ['active', 'outOfStock'] satisfies ProductRecord['status'][],
+      )
       .limit(2)
       .get();
 

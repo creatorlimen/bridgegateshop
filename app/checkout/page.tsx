@@ -3,13 +3,13 @@ import { LockKeyhole, MapPin, PackageCheck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 
-import { getPreviewCartLines } from '@/lib/services/carts/previewCart';
+import { getCurrentCart } from '@/lib/services/carts/authoritativeCart';
 import { formatMoney } from '@/lib/utils/money/formatMoney';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Checkout preview',
+  title: 'Checkout',
   robots: {
     index: false,
     follow: false,
@@ -17,13 +17,9 @@ export const metadata: Metadata = {
 };
 
 export default async function CheckoutPage() {
-  const cartLines = await getPreviewCartLines();
-  const subtotalKobo = cartLines.reduce(
-    (runningTotal, cartLine) => runningTotal + cartLine.lineTotalKobo,
-    0,
-  );
+  const cart = await getCurrentCart();
 
-  if (cartLines.length === 0) {
+  if (cart.lines.length === 0) {
     return (
       <div className="shell py-16 text-center">
         <h1 className="display-type text-5xl">Your checkout is empty.</h1>
@@ -38,16 +34,37 @@ export default async function CheckoutPage() {
     <div className="shell py-10 sm:py-14">
       <div className="mb-8 flex flex-col gap-4 border-b border-ink/10 pb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="eyebrow text-clay">Checkout preview</p>
+          <p className="eyebrow text-clay">Checkout</p>
           <h1 className="display-type mt-5 text-5xl sm:text-6xl">
             Delivery and payment.
           </h1>
         </div>
         <p className="flex items-center gap-2 text-xs font-bold text-muted">
           <LockKeyhole aria-hidden="true" size={15} />
-          No live order or payment will be created
+          Price and stock revalidated on this request
         </p>
       </div>
+
+      {!cart.readyForCheckout ? (
+        <div
+          className="mb-8 rounded-2xl border border-clay/20 bg-clay/10 p-5 text-sm"
+          role="alert"
+        >
+          <p className="font-black">
+            The cart changed and cannot continue yet.
+          </p>
+          <p className="mt-2 text-muted">
+            Return to the cart to review current prices, unavailable items,
+            or adjusted stock.
+          </p>
+          <Link
+            className="mt-4 inline-flex text-xs font-black underline"
+            href="/cart"
+          >
+            Review cart
+          </Link>
+        </div>
+      ) : null}
 
       <div className="grid gap-8 lg:grid-cols-[1fr_23rem]">
         <div className="grid gap-5">
@@ -95,7 +112,9 @@ export default async function CheckoutPage() {
             </div>
 
             <fieldset className="mt-7">
-              <legend className="text-sm font-black">Fulfilment method</legend>
+              <legend className="text-sm font-black">
+                Fulfilment method
+              </legend>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="cursor-pointer rounded-2xl border border-ink/15 p-4 has-[:checked]:border-ink has-[:checked]:ring-2 has-[:checked]:ring-amber">
                   <input
@@ -105,7 +124,9 @@ export default async function CheckoutPage() {
                     type="radio"
                     value="delivery"
                   />
-                  <span className="text-sm font-black">Lagos delivery</span>
+                  <span className="text-sm font-black">
+                    Lagos delivery
+                  </span>
                   <span className="mt-2 block pl-6 text-xs leading-5 text-muted">
                     Zone and fee confirmed from approved settings.
                   </span>
@@ -140,9 +161,21 @@ export default async function CheckoutPage() {
             </div>
             <div className="mt-7 grid gap-3">
               {[
-                ['paystack', 'Pay online with Paystack', 'Card, bank, USSD, or enabled merchant methods'],
-                ['pod', 'Pay on Delivery', 'Eligibility and deposit calculated by approved rules'],
-                ['transfer', 'Manual Bank Transfer', 'Instructions shown only after valid order creation'],
+                [
+                  'paystack',
+                  'Pay online with Paystack',
+                  'Card, bank, USSD, or enabled merchant methods',
+                ],
+                [
+                  'pod',
+                  'Pay on Delivery',
+                  'Eligibility and deposit calculated by approved rules',
+                ],
+                [
+                  'transfer',
+                  'Manual Bank Transfer',
+                  'Instructions shown only after valid order creation',
+                ],
               ].map(([value, label, description], methodIndex) => (
                 <label
                   className="cursor-pointer rounded-2xl border border-ink/15 p-4 has-[:checked]:border-ink has-[:checked]:ring-2 has-[:checked]:ring-amber"
@@ -170,15 +203,15 @@ export default async function CheckoutPage() {
             Order review
           </p>
           <div className="mt-6 grid gap-4">
-            {cartLines.map((cartLine) => (
+            {cart.lines.map((cartLine) => (
               <div className="flex gap-3" key={cartLine.variantId}>
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-white/10">
                   <Image
-                    className="object-cover"
-                    src={cartLine.imagePath}
                     alt=""
+                    className="object-cover"
                     fill
                     sizes="56px"
+                    src={cartLine.imagePath}
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -186,7 +219,7 @@ export default async function CheckoutPage() {
                     {cartLine.productName}
                   </p>
                   <p className="mt-1 text-[0.68rem] text-white/45">
-                    {cartLine.quantity} × {cartLine.variantName}
+                    {cartLine.requestedQuantity} × {cartLine.variantName}
                   </p>
                 </div>
                 <p className="text-xs font-black">
@@ -197,18 +230,23 @@ export default async function CheckoutPage() {
           </div>
           <div className="mt-6 flex items-end justify-between gap-4 border-t border-white/15 pt-6">
             <p className="text-sm text-white/60">Subtotal</p>
-            <p className="text-2xl font-black">{formatMoney(subtotalKobo)}</p>
+            <p className="text-2xl font-black">
+              {formatMoney(cart.subtotalKobo)}
+            </p>
           </div>
           <button
             className="mt-6 min-h-14 w-full cursor-not-allowed rounded-full bg-white/12 px-5 text-sm font-black text-white/45"
             disabled
             type="button"
           >
-            Order connection pending
+            {cart.readyForCheckout
+              ? 'Order creation is the next stage'
+              : 'Return to cart to resolve changes'}
           </button>
           <p className="mt-4 text-[0.68rem] leading-5 text-white/45">
-            Live order creation activates after Firebase, delivery rules,
-            policies, and Paystack test credentials are configured.
+            {cart.readyForCheckout
+              ? 'The server accepted the current catalogue prices and managed stock for checkout display. No stock is reserved until order creation requests an explicit hold.'
+              : 'Checkout cannot proceed while a price, stock, or catalogue issue remains in the cart.'}
           </p>
         </aside>
       </div>

@@ -40,8 +40,17 @@ import {
   type UpdateVariantInput,
 } from '@/lib/schemas/catalogueMutations';
 import type { CatalogueSearchDocument } from '@/lib/schemas/catalogueSearch';
+import {
+  inventoryBalanceDocumentSchema,
+  type InventoryBalanceDocument,
+  type InventoryBalanceRecord,
+} from '@/lib/schemas/inventory';
 import { writeAuditEvent } from '@/lib/services/audit/writeAuditEvent';
 import { createSearchTokenProjection } from '@/lib/utils/catalogue/searchTokens';
+import {
+  calculateProductStockState,
+  calculateStockState,
+} from '@/lib/utils/inventory/calculateStockState';
 
 export type CatalogueMutationActor = {
   actorId: string;
@@ -247,15 +256,94 @@ function getProductSummary(
       currency: 'NGN' as const,
     },
     availabilitySummary: {
-      stockState:
-        currentProduct.availabilitySummary.stockState === 'outOfStock'
-          ? ('notManaged' as const)
-          : currentProduct.availabilitySummary.stockState,
+      stockState: currentProduct.availabilitySummary.stockState,
       activeVariantCount: activeVariants.length,
     },
   };
 }
 
+
+function createVariantInventoryBalance(
+  variant: ProductVariantRecord,
+  currentBalance: InventoryBalanceRecord | null,
+  now: Timestamp,
+  actorId: string,
+): InventoryBalanceDocument {
+  const onHand = currentBalance?.onHand ?? 0;
+  const reserved = currentBalance?.reserved ?? 0;
+
+  if (!variant.stockManaged && reserved > 0) {
+    throw new CatalogueMutationError(
+      'INVALID_STATE',
+      'Stock management cannot be disabled while reservations are active.',
+      'stockManaged',
+    );
+  }
+
+  const available = onHand - reserved;
+
+  return inventoryBalanceDocumentSchema.parse({
+    schemaVersion: 1,
+    variantId: variant.id,
+    stockManaged: variant.stockManaged,
+    onHand,
+    reserved,
+    available,
+    lowStockThreshold: variant.lowStockThreshold,
+    stockState: calculateStockState({
+      stockManaged: variant.stockManaged,
+      available,
+      lowStockThreshold: variant.lowStockThreshold,
+    }),
+    lastMovementAt: currentBalance?.lastMovementAt ?? null,
+    createdAt: currentBalance?.createdAt ?? now,
+    createdBy: currentBalance?.createdBy ?? actorId,
+    updatedAt: now,
+    updatedBy: actorId,
+    version: currentBalance ? currentBalance.version + 1 : 1,
+  });
+}
+
+function parseInventoryBalances(
+  snapshots: readonly DocumentSnapshot[],
+): Map<string, InventoryBalanceRecord> {
+  return new Map(
+    snapshots
+      .filter((snapshot) => snapshot.exists)
+      .map((snapshot) => {
+        const balance = parseRecord(
+          snapshot,
+          inventoryBalanceDocumentSchema,
+          'Inventory balance',
+        );
+
+        return [balance.variantId, balance] as const;
+      }),
+  );
+}
+
+function getProjectedProductStockState(
+  activeVariants: readonly ProductVariantRecord[],
+  balancesByVariantId: ReadonlyMap<string, InventoryBalanceRecord>,
+  changedBalance?: InventoryBalanceDocument,
+) {
+  return calculateProductStockState(
+    activeVariants.map((variant) => {
+      if (changedBalance?.variantId === variant.id) {
+        return changedBalance.stockState;
+      }
+
+      return (
+        balancesByVariantId.get(variant.id)?.stockState ??
+        calculateStockState({
+          stockManaged: variant.stockManaged,
+          available: 0,
+          lowStockThreshold: variant.lowStockThreshold,
+        })
+      );
+    }),
+  );
+}
 function buildSearchDocument(
   product: ProductRecord,
   category: CategoryRecord,
@@ -1091,18 +1179,26 @@ class FirestoreCatalogueMutationService {
     const skuClaimReference = this.firestore
       .collection(firestoreCollections.skuClaims)
       .doc(input.skuNormalised);
+    const balanceReference = this.firestore
+      .collection(firestoreCollections.inventoryBalances)
+      .doc(variantReference.id);
     const activeVariantQuery = this.firestore
       .collection(firestoreCollections.productVariants)
       .where('productId', '==', input.productId)
       .where('status', '==', 'active');
 
     return this.firestore.runTransaction(async (transaction) => {
-      const [variantSnapshot, productSnapshot, skuClaimSnapshot] =
-        await transaction.getAll(
-          variantReference,
-          productReference,
-          skuClaimReference,
-        );
+      const [
+        variantSnapshot,
+        productSnapshot,
+        skuClaimSnapshot,
+        balanceSnapshot,
+      ] = await transaction.getAll(
+        variantReference,
+        productReference,
+        skuClaimReference,
+        balanceReference,
+      );
       const currentProduct = parseRecord(
         productSnapshot,
         productDocumentSchema,
@@ -1116,13 +1212,26 @@ class FirestoreCatalogueMutationService {
       const activeVariantSnapshot = await transaction.get(
         activeVariantQuery,
       );
+      const activeVariantsBefore = parseVariantDocuments(
+        activeVariantSnapshot.docs,
+      );
+      const activeBalanceSnapshots =
+        activeVariantsBefore.length > 0
+          ? await transaction.getAll(
+              ...activeVariantsBefore.map((activeVariant) =>
+                this.firestore
+                  .collection(firestoreCollections.inventoryBalances)
+                  .doc(activeVariant.id),
+              ),
+            )
+          : [];
       const category = parseRecord(
         categorySnapshot,
         categoryDocumentSchema,
         'Category',
       );
 
-      if (variantSnapshot.exists) {
+      if (variantSnapshot.exists || balanceSnapshot.exists) {
         throw new CatalogueMutationError(
           'CONFLICT',
           'Unable to allocate a product variant ID.',
@@ -1141,6 +1250,7 @@ class FirestoreCatalogueMutationService {
       const now = Timestamp.now();
       const variant = productVariantDocumentSchema.parse({
         ...input,
+        currency: 'NGN',
         schemaVersion: 1,
         createdAt: now,
         createdBy: actor.actorId,
@@ -1151,22 +1261,50 @@ class FirestoreCatalogueMutationService {
         archivedBy: null,
         archiveReason: null,
       });
-      const activeVariants = getActiveVariantsAfterChange(
-        parseVariantDocuments(activeVariantSnapshot.docs),
-        {
-          id: variantReference.id,
-          ...variant,
-        },
+      const variantRecord: ProductVariantRecord = {
+        id: variantReference.id,
+        ...variant,
+      };
+      const balance = createVariantInventoryBalance(
+        variantRecord,
+        null,
+        now,
+        actor.actorId,
       );
-      const summary = getProductSummary(activeVariants, currentProduct);
+      const activeVariants = getActiveVariantsAfterChange(
+        activeVariantsBefore,
+        variantRecord,
+      );
+      const productStockState = getProjectedProductStockState(
+        activeVariants,
+        parseInventoryBalances(activeBalanceSnapshots),
+        balance,
+      );
+      const baseSummary = getProductSummary(
+        activeVariants,
+        currentProduct,
+      );
+      const summary = {
+        ...baseSummary,
+        availabilitySummary: {
+          ...baseSummary.availabilitySummary,
+          stockState: productStockState,
+        },
+      };
       const updatedProduct = productDocumentSchema.parse({
         ...currentProduct,
+        status: isPublishedProduct(currentProduct)
+          ? productStockState === 'outOfStock'
+            ? 'outOfStock'
+            : 'active'
+          : currentProduct.status,
         ...summary,
         updatedAt: now,
         updatedBy: actor.actorId,
         version: currentProduct.version + 1,
       });
 
+      transaction.create(balanceReference, balance);
       transaction.create(variantReference, variant);
       transaction.create(skuClaimReference, {
         schemaVersion: 1,
@@ -1212,12 +1350,16 @@ class FirestoreCatalogueMutationService {
     const skuClaimReference = this.firestore
       .collection(firestoreCollections.skuClaims)
       .doc(input.skuNormalised);
+    const balanceReference = this.firestore
+      .collection(firestoreCollections.inventoryBalances)
+      .doc(input.variantId);
 
     return this.firestore.runTransaction(async (transaction) => {
-      const [variantSnapshot, skuClaimSnapshot] =
+      const [variantSnapshot, skuClaimSnapshot, balanceSnapshot] =
         await transaction.getAll(
           variantReference,
           skuClaimReference,
+          balanceReference,
         );
       const currentVariant = parseRecord(
         variantSnapshot,
@@ -1244,6 +1386,20 @@ class FirestoreCatalogueMutationService {
           .where('productId', '==', currentVariant.productId)
           .where('status', '==', 'active'),
       );
+      const activeVariantsBefore = parseVariantDocuments(
+        activeVariantSnapshot.docs,
+      );
+      const activeBalanceSnapshots =
+        activeVariantsBefore.length > 0
+          ? await transaction.getAll(
+              ...activeVariantsBefore.map((activeVariant) =>
+                this.firestore
+                  .collection(firestoreCollections.inventoryBalances)
+                  .doc(activeVariant.id),
+              ),
+            )
+          : [];
+      const balancesByVariantId = parseInventoryBalances(activeBalanceSnapshots);
       const category = parseRecord(
         categorySnapshot,
         categoryDocumentSchema,
@@ -1276,12 +1432,26 @@ class FirestoreCatalogueMutationService {
         updatedBy: actor.actorId,
         version: currentVariant.version + 1,
       });
+      const updatedVariantRecord: ProductVariantRecord = {
+        id: currentVariant.id,
+        ...updatedVariant,
+      };
+      const currentBalance = balanceSnapshot.exists
+        ? parseRecord(
+            balanceSnapshot,
+            inventoryBalanceDocumentSchema,
+            'Inventory balance',
+          )
+        : null;
+      const balance = createVariantInventoryBalance(
+        updatedVariantRecord,
+        currentBalance,
+        now,
+        actor.actorId,
+      );
       const activeVariants = getActiveVariantsAfterChange(
-        parseVariantDocuments(activeVariantSnapshot.docs),
-        {
-          id: currentVariant.id,
-          ...updatedVariant,
-        },
+        activeVariantsBefore,
+        updatedVariantRecord,
       );
 
       if (isPublishedProduct(currentProduct) && activeVariants.length === 0) {
@@ -1291,15 +1461,33 @@ class FirestoreCatalogueMutationService {
         );
       }
 
-      const summary = getProductSummary(activeVariants, currentProduct);
+      const productStockState = getProjectedProductStockState(
+        activeVariants,
+        balancesByVariantId,
+        balance,
+      );
+      const baseSummary = getProductSummary(activeVariants, currentProduct);
+      const summary = {
+        ...baseSummary,
+        availabilitySummary: {
+          ...baseSummary.availabilitySummary,
+          stockState: productStockState,
+        },
+      };
       const updatedProduct = productDocumentSchema.parse({
         ...currentProduct,
+        status: isPublishedProduct(currentProduct)
+          ? productStockState === 'outOfStock'
+            ? 'outOfStock'
+            : 'active'
+          : currentProduct.status,
         ...summary,
         updatedAt: now,
         updatedBy: actor.actorId,
         version: currentProduct.version + 1,
       });
 
+      transaction.set(balanceReference, balance);
       transaction.set(variantReference, updatedVariant);
 
       if (!skuClaimSnapshot.exists) {

@@ -5,6 +5,8 @@ export type DomainErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'INVALID_STATE'
+  | 'OUT_OF_STOCK'
+  | 'PRICE_CHANGED'
   | 'PROVIDER_UNAVAILABLE'
   | 'INTERNAL_ERROR';
 

@@ -12,7 +12,7 @@ function indexSignature(index: (typeof firestoreIndexes.indexes)[number]) {
 }
 
 describe('Firestore index manifest', () => {
-  it('contains every composite index used by the catalogue repository', () => {
+  it('contains every declared composite index used by server repositories', () => {
     const indexSignatures = new Set(
       firestoreIndexes.indexes.map(indexSignature),
     );
@@ -23,6 +23,9 @@ describe('Firestore index manifest', () => {
         'products|status:ascending|publicationOrder:ascending|name:ascending',
         'products|categoryId:ascending|status:ascending|publicationOrder:ascending|name:ascending',
         'productVariants|productId:ascending|status:ascending|publicationOrder:ascending|name:ascending',
+        'inventoryBalances|stockState:ascending|lastMovementAt:descending',
+        'inventoryReservations|state:ascending|expiresAt:ascending',
+        'carts|ownerUid:ascending|status:ascending',
       ]),
     );
   });
