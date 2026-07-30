@@ -1,0 +1,107 @@
+import { permissions, type Permission } from '@/lib/auth/permissions';
+
+export const roles = [
+  'customer',
+  'supportAgent',
+  'fulfilmentStaff',
+  'contentEditor',
+  'salesManager',
+  'creditManager',
+  'administrator',
+  'owner',
+] as const;
+
+export type Role = (typeof roles)[number];
+
+export const rolePermissions = {
+  customer: [],
+  supportAgent: [
+    'catalogue.read',
+    'inventory.read',
+    'orders.read',
+    'orders.update',
+    'customers.read',
+    'quotes.read',
+    'deliveries.read',
+    'reviews.moderate',
+  ],
+  fulfilmentStaff: [
+    'catalogue.read',
+    'inventory.read',
+    'inventory.adjust',
+    'orders.read',
+    'orders.update',
+    'deliveries.read',
+    'deliveries.manage',
+  ],
+  contentEditor: [
+    'catalogue.read',
+    'catalogue.write',
+    'contractors.moderate',
+    'reviews.moderate',
+    'content.publish',
+    'alerts.preview',
+    'settings.public.write',
+  ],
+  salesManager: [
+    'catalogue.read',
+    'inventory.read',
+    'orders.read',
+    'customers.read',
+    'quotes.read',
+    'quotes.manage',
+    'deliveries.read',
+    'alerts.preview',
+    'alerts.send',
+  ],
+  creditManager: [
+    'catalogue.read',
+    'orders.read',
+    'customers.read',
+    'quotes.read',
+    'credit.applications.review',
+    'credit.limits.manage',
+    'credit.repayments.record',
+    'credit.adjustments.post',
+    'credit.suspend',
+  ],
+  administrator: [
+    'catalogue.read',
+    'catalogue.write',
+    'catalogue.publish',
+    'pricing.write',
+    'inventory.read',
+    'inventory.adjust',
+    'orders.read',
+    'orders.update',
+    'payments.record',
+    'refunds.approve',
+    'customers.read',
+    'customers.restrict',
+    'quotes.read',
+    'quotes.manage',
+    'deliveries.read',
+    'deliveries.manage',
+    'credit.applications.review',
+    'credit.limits.manage',
+    'credit.repayments.record',
+    'credit.suspend',
+    'contractors.moderate',
+    'reviews.moderate',
+    'content.publish',
+    'alerts.preview',
+    'alerts.send',
+    'settings.public.write',
+    'settings.commerce.write',
+    'staff.invite',
+    'audit.read',
+    'reports.export',
+  ],
+  owner: permissions,
+} as const satisfies Record<Role, readonly Permission[]>;
+
+export function getPermissionsForRoles(roleIds: readonly Role[]) {
+  return new Set<Permission>(
+    roleIds.flatMap((roleId) => [...rolePermissions[roleId]]),
+  );
+}

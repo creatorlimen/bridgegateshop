@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #211f1b;
+  --canvas: #f3f0e9;
+  --paper: #fffdf8;
+  --line: #d8d2c6;
+  --muted: #6f6a61;
+  --clay: #a95735;
+  --amber: #e7a933;
+  --moss: #4d6047;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(231, 169, 51, 0.08), transparent 28rem),
+    var(--canvas);
+  color: var(--ink);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--amber);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 3px;
+}
+
+.display-type {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: -0.045em;
+}
+
+.shell {
+  margin-inline: auto;
+  width: min(100% - 2rem, 75rem);
+}
+
+.paper-grid {
+  background-image:
+    linear-gradient(rgba(33, 31, 27, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 31, 27, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.eyebrow::before {
+  height: 0.6rem;
+  width: 0.6rem;
+  border-radius: 999px;
+  background: var(--amber);
+  content: "";
+}
+
+.button-primary,
+.button-secondary,
+.button-dark {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border-radius: 999px;
+  padding: 0.8rem 1.2rem;
+  font-size: 0.875rem;
+  font-weight: 800;
+  transition:
+    transform 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease;
+}
+
+.button-primary {
+  background: var(--amber);
+  color: var(--ink);
+}
+
+.button-primary:hover {
+  background: #f0ba4b;
+  transform: translateY(-2px);
+}
+
+.button-secondary {
+  border: 1px solid var(--line);
+  background: rgba(255, 253, 248, 0.76);
+  color: var(--ink);
+}
+
+.button-secondary:hover {
+  border-color: var(--ink);
+  transform: translateY(-2px);
+}
+
+.button-dark {
+  background: var(--ink);
+  color: white;
+}
+
+.button-dark:hover {
+  background: #3a3731;
+  transform: translateY(-2px);
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+.hairline {
+  border-color: rgba(33, 31, 27, 0.14);
+}
+
+.product-card-image {
+  transition: transform 500ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.product-card:hover .product-card-image {
+  transform: scale(1.035);
+}
+
+.hero-image {
+  animation: hero-reveal 900ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+}
+
+@keyframes hero-reveal {
+  from {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

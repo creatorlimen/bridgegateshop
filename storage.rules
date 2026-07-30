@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Uploads and downloads are brokered by trusted server endpoints.
+    match /{object=**} {
+      allow read, write: if false;
+    }
+  }
+}
