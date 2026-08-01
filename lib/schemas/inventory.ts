@@ -80,6 +80,7 @@ export const inventoryReservationLineSchema = z
 export const inventoryReservationDocumentSchema = mutableRecordFieldsSchema
   .extend({
     cartId: firestoreDocumentIdSchema,
+    orderId: firestoreDocumentIdSchema.nullable(),
     ownerUid: actorReferenceSchema.nullable(),
     guestTokenHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
     lines: z.array(inventoryReservationLineSchema).min(1).max(50),

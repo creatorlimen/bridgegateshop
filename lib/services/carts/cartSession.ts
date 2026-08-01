@@ -122,3 +122,59 @@ export async function getCartIdentity({
 
   return identity;
 }
+
+export async function getCheckoutIdentity(
+  cartId: string,
+): Promise<CartIdentity | null> {
+  const [session, cookieStore] = await Promise.all([
+    getCurrentSession(),
+    cookies(),
+  ]);
+
+  if (session) {
+    return {
+      cartId,
+      ownerUid: session.uid,
+      guestTokenHash: null,
+    };
+  }
+
+  const cartCookie = parseAuthoritativeCartCookie(
+    cookieStore.get(authoritativeCartCookieName)?.value,
+  );
+
+  if (!cartCookie || cartCookie.cartId !== cartId) {
+    return null;
+  }
+
+  return {
+    cartId,
+    ownerUid: null,
+    guestTokenHash: cartCookie.guestTokenHash,
+  };
+}
+
+export async function getOrderAccessProof(): Promise<{
+  ownerUid: string | null;
+  guestTokenHash: string | null;
+} | null> {
+  const [session, cookieStore] = await Promise.all([
+    getCurrentSession(),
+    cookies(),
+  ]);
+
+  if (session) {
+    return { ownerUid: session.uid, guestTokenHash: null };
+  }
+
+  const cartCookie = parseAuthoritativeCartCookie(
+    cookieStore.get(authoritativeCartCookieName)?.value,
+  );
+
+  return cartCookie
+    ? {
+        ownerUid: null,
+        guestTokenHash: cartCookie.guestTokenHash,
+      }
+    : null;
+}

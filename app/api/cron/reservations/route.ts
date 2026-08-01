@@ -1,5 +1,5 @@
 import { isCronRequestAuthorized } from '@/lib/security/cronAuthorization';
-import { createInventoryService } from '@/lib/services/inventory/InventoryService';
+import { createOrderReservationExpiryService } from '@/lib/services/orders/OrderReservationExpiryService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +17,7 @@ async function expireReservations(request: Request) {
   }
 
   try {
-    const result = await createInventoryService().expireDueReservations();
+    const result = await createOrderReservationExpiryService().expireDueReservations();
 
     return Response.json({
       success: true,

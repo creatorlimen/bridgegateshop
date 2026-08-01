@@ -34,6 +34,7 @@ export const adjustInventoryInputSchema = z
 
 export const createInventoryReservationInputSchema = z
   .object({
+    orderId: firestoreDocumentIdSchema.nullable().optional(),
     cartId: firestoreDocumentIdSchema,
     ownerUid: z.string().trim().min(1).max(160).nullable(),
     guestTokenHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
@@ -57,7 +58,7 @@ export const transitionInventoryReservationInputSchema = z
 export type AdjustInventoryInput = z.infer<
   typeof adjustInventoryInputSchema
 >;
-export type CreateInventoryReservationInput = z.infer<
+export type CreateInventoryReservationInput = z.input<
   typeof createInventoryReservationInputSchema
 >;
 export type TransitionInventoryReservationInput = z.infer<

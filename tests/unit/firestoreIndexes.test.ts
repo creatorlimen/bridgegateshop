@@ -26,6 +26,7 @@ describe('Firestore index manifest', () => {
         'inventoryBalances|stockState:ascending|lastMovementAt:descending',
         'inventoryReservations|state:ascending|expiresAt:ascending',
         'carts|ownerUid:ascending|status:ascending',
+        'orders|ownerUid:ascending|placedAt:descending',
       ]),
     );
   });

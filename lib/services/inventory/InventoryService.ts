@@ -64,7 +64,7 @@ type InventorySystemActor = {
   requestId: string;
 };
 
-type ProjectionContext = {
+export type InventoryProjectionContext = {
   productReference: DocumentReference;
   searchReference: DocumentReference;
   product: ProductRecord;
@@ -173,7 +173,7 @@ function shouldCreateLowStockEvent(
   );
 }
 
-function writeLowStockEvent(
+export function writeInventoryLowStockEvent(
   transaction: Transaction,
   firestore: Firestore,
   balance: InventoryBalanceRecord,
@@ -210,13 +210,13 @@ function writeLowStockEvent(
   });
 }
 
-async function loadProjectionContexts(
+export async function loadInventoryProjectionContexts(
   transaction: Transaction,
   firestore: Firestore,
   productIds: readonly string[],
-): Promise<Map<string, ProjectionContext>> {
+): Promise<Map<string, InventoryProjectionContext>> {
   const uniqueProductIds = [...new Set(productIds)].sort();
-  const contexts = new Map<string, ProjectionContext>();
+  const contexts = new Map<string, InventoryProjectionContext>();
 
   for (const productId of uniqueProductIds) {
     const productReference = firestore
@@ -301,9 +301,9 @@ async function loadProjectionContexts(
   return contexts;
 }
 
-function writeProductAvailabilityProjections(
+export function writeInventoryAvailabilityProjections(
   transaction: Transaction,
-  contexts: ReadonlyMap<string, ProjectionContext>,
+  contexts: ReadonlyMap<string, InventoryProjectionContext>,
   balanceOverrides: ReadonlyMap<string, InventoryBalanceRecord>,
   actorId: string,
   now: Timestamp,
@@ -562,7 +562,7 @@ class FirestoreInventoryService {
         id: input.variantId,
         ...nextBalanceDocument,
       };
-      const contexts = await loadProjectionContexts(
+      const contexts = await loadInventoryProjectionContexts(
         transaction,
         this.firestore,
         [variant.productId],
@@ -585,14 +585,14 @@ class FirestoreInventoryService {
 
       transaction.set(balanceReference, nextBalanceDocument);
       transaction.create(movementReference, movement);
-      writeLowStockEvent(
+      writeInventoryLowStockEvent(
         transaction,
         this.firestore,
         nextBalance,
         currentBalance.stockState,
         now,
       );
-      writeProductAvailabilityProjections(
+      writeInventoryAvailabilityProjections(
         transaction,
         contexts,
         new Map([[variant.id, nextBalance]]),
@@ -684,7 +684,7 @@ class FirestoreInventoryService {
           'Product variant',
         ),
       );
-      const contexts = await loadProjectionContexts(
+      const contexts = await loadInventoryProjectionContexts(
         transaction,
         this.firestore,
         variants.map((variant) => variant.productId),
@@ -756,6 +756,7 @@ class FirestoreInventoryService {
         inventoryReservationDocumentSchema.parse({
           schemaVersion: 1,
           cartId: input.cartId,
+          orderId: input.orderId ?? null,
           ownerUid: input.ownerUid,
           guestTokenHash: input.guestTokenHash,
           lines: sortedLines,
@@ -794,7 +795,7 @@ class FirestoreInventoryService {
           context?.balancesByVariantId.get(nextBalance.id)?.stockState;
 
         if (previousState) {
-          writeLowStockEvent(
+          writeInventoryLowStockEvent(
             transaction,
             this.firestore,
             nextBalance,
@@ -804,7 +805,7 @@ class FirestoreInventoryService {
         }
       }
 
-      writeProductAvailabilityProjections(
+      writeInventoryAvailabilityProjections(
         transaction,
         contexts,
         nextBalances,
@@ -900,7 +901,7 @@ class FirestoreInventoryService {
           'Product variant',
         ),
       );
-      const contexts = await loadProjectionContexts(
+      const contexts = await loadInventoryProjectionContexts(
         transaction,
         this.firestore,
         variants.map((variant) => variant.productId),
@@ -1049,7 +1050,7 @@ class FirestoreInventoryService {
         transaction.create(movement.reference, movement.document);
       }
 
-      writeProductAvailabilityProjections(
+      writeInventoryAvailabilityProjections(
         transaction,
         contexts,
         nextBalances,

@@ -5,13 +5,23 @@ import { describe, expect, it } from 'vitest';
 
 const projectRoot = process.cwd();
 const serverOnlyModules = [
+  'lib/config/checkoutSettings.ts',
   'lib/config/commerceDataSource.ts',
+  'lib/repositories/orders/OrderRepository.ts',
+  'lib/repositories/payments/PaymentAdminRepository.ts',
   'lib/repositories/inventory/InventoryAdminRepository.ts',
   'lib/security/cronAuthorization.ts',
   'lib/services/carts/CartService.ts',
   'lib/services/carts/authoritativeCart.ts',
   'lib/services/carts/cartSession.ts',
   'lib/services/inventory/InventoryService.ts',
+  'lib/services/inventory/inventoryTransactionOperations.ts',
+  'lib/services/orders/CheckoutService.ts',
+  'lib/services/orders/OrderReservationExpiryService.ts',
+  'lib/services/orders/resolvePaymentReturn.ts',
+  'lib/services/payments/PaymentAttemptService.ts',
+  'lib/services/payments/PaystackClient.ts',
+  'lib/services/payments/PaystackWebhookService.ts',
 ] as const;
 
 describe('inventory and cart runtime boundaries', () => {
