@@ -164,10 +164,12 @@ class FirestoreOrderReservationExpiryService {
         updatedBy: 'system:reservation-expiry',
         version: reservation.version + 1,
       });
+      const hasPostedPayment = order.totals.amountPaidKobo > order.refundTotalKobo;
+      const nextPaymentStatus = hasPostedPayment ? order.paymentStatus : 'failed';
       const nextOrder = orderDocumentSchema.parse({
         ...order,
         orderStatus: 'failed',
-        paymentStatus: 'failed',
+        paymentStatus: nextPaymentStatus,
         updatedAt: timestamp,
         updatedBy: 'system:reservation-expiry',
         version: order.version + 1,
@@ -199,9 +201,11 @@ class FirestoreOrderReservationExpiryService {
           previousOrderStatus: order.orderStatus,
           nextOrderStatus: 'failed',
           previousPaymentStatus: order.paymentStatus,
-          nextPaymentStatus: 'failed',
-          customerLabel: 'Payment window expired',
-          customerNote: 'No verified payment was received before the stock hold ended.',
+          nextPaymentStatus,
+          customerLabel: hasPostedPayment ? 'Transfer window expired' : 'Payment window expired',
+          customerNote: hasPostedPayment
+            ? 'The payment window closed with an outstanding balance. The verified payment remains recorded for staff review.'
+            : 'No verified payment was received before the stock hold ended.',
           actorId: 'system:reservation-expiry',
           idempotencyKey: `order-expired:${reservationId}`,
           occurredAt: timestamp,

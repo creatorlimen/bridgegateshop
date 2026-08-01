@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { loadCheckoutSettings } from '@/lib/config/checkoutSettings';
 import {
   PaystackWebhookError,
   createPaystackWebhookService,
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await createPaystackWebhookService().processSignedEvent(rawBody);
+    const settings = await loadCheckoutSettings();
+    const result = await createPaystackWebhookService(undefined, undefined, settings).processSignedEvent(rawBody);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof PaystackWebhookError && error.code === 'INVALID_PAYLOAD') {

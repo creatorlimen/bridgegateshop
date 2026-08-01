@@ -34,6 +34,23 @@ const paystackVerificationResponseSchema = z
   })
   .passthrough();
 
+const paystackRefundResponseSchema = z
+  .object({
+    status: z.literal(true),
+    message: z.string().max(500),
+    data: z
+      .object({
+        id: z.union([z.number().int().nonnegative(), z.string().min(1).max(120)]),
+        amount: z.number().int().positive(),
+        currency: z.string().min(3).max(8),
+        status: z.string().min(1).max(80),
+        expected_at: z.string().datetime().nullable().optional(),
+        refunded_at: z.string().datetime().nullable().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 export type PaymentInitialisation = {
   email: string;
   amountKobo: number;
@@ -66,6 +83,28 @@ export type VerifiedPayment = {
 export interface PaymentProvider {
   initialiseTransaction(input: PaymentInitialisation): Promise<PaymentRedirect>;
   verifyTransaction(providerReference: string): Promise<VerifiedPayment>;
+}
+
+export type ProviderRefundInput = {
+  transactionReference: string;
+  amountKobo: number;
+  currency: 'NGN';
+  customerNote: string;
+  merchantNote: string;
+};
+
+export type ProviderRefundResult = {
+  providerRefundId: string;
+  amountKobo: number;
+  currency: string;
+  status: string;
+  expectedAt: Date | null;
+  refundedAt: Date | null;
+  safeMessage: string;
+};
+
+export interface RefundProvider {
+  createRefund(input: ProviderRefundInput): Promise<ProviderRefundResult>;
 }
 
 export class PaystackProviderError extends Error {
@@ -227,6 +266,42 @@ export class PaystackClient implements PaymentProvider {
         paidAt: transaction.paid_at,
         channel: transaction.channel,
       }),
+    };
+  }
+
+  async createRefund(input: ProviderRefundInput): Promise<ProviderRefundResult> {
+    const payload = await requestPaystack('/refund', {
+      method: 'POST',
+      body: JSON.stringify({
+        transaction: input.transactionReference,
+        amount: input.amountKobo,
+        currency: input.currency,
+        customer_note: input.customerNote,
+        merchant_note: input.merchantNote,
+      }),
+    });
+    const parsed = paystackRefundResponseSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new PaystackProviderError(
+        'INVALID_RESPONSE',
+        'Paystack returned an invalid refund response.',
+      );
+    }
+    const refund = parsed.data.data;
+    if (refund.amount !== input.amountKobo || refund.currency !== input.currency) {
+      throw new PaystackProviderError(
+        'INVALID_RESPONSE',
+        'Paystack returned mismatched refund details.',
+      );
+    }
+    return {
+      providerRefundId: String(refund.id),
+      amountKobo: refund.amount,
+      currency: refund.currency,
+      status: refund.status,
+      expectedAt: refund.expected_at ? new Date(refund.expected_at) : null,
+      refundedAt: refund.refunded_at ? new Date(refund.refunded_at) : null,
+      safeMessage: parsed.data.message,
     };
   }
 }

@@ -4,7 +4,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { CheckoutOrderForm } from '@/app/checkout/CheckoutOrderForm';
-import { getCheckoutSettings } from '@/lib/config/checkoutSettings';
+import { loadCheckoutSettings } from '@/lib/config/checkoutSettings';
 import { getCurrentCart } from '@/lib/services/carts/authoritativeCart';
 
 export const dynamic = 'force-dynamic';
@@ -22,9 +22,10 @@ type CheckoutPageProps = {
 export default async function CheckoutPage({
   searchParams,
 }: CheckoutPageProps) {
-  const [cart, resolvedSearchParams] = await Promise.all([
+  const [cart, resolvedSearchParams, checkoutSettings] = await Promise.all([
     getCurrentCart(),
     searchParams,
+    loadCheckoutSettings(),
   ]);
 
   if (cart.lines.length === 0) {
@@ -70,7 +71,7 @@ export default async function CheckoutPage({
 
       <CheckoutOrderForm
         cart={cart}
-        checkoutSettings={getCheckoutSettings()}
+        checkoutSettings={checkoutSettings}
         errorMessage={resolvedSearchParams.error}
         idempotencyKey={`checkout:${randomUUID()}`}
       />

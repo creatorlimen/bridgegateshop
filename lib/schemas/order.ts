@@ -150,9 +150,12 @@ export const orderDocumentSchema = mutableRecordFieldsSchema
     paymentSelection: z
       .object({
         method: checkoutPaymentMethodSchema,
+        configurationVersion: z.string().min(1).max(120),
         payableNowKobo: moneySchema,
         depositKobo: moneySchema,
         outstandingAfterInitialPaymentKobo: moneySchema,
+        podConfirmationMode: z.literal('staffApproval').nullable(),
+        manualTransferPartialAllowed: z.boolean(),
       })
       .strict(),
     policyEvidence: z
@@ -173,10 +176,12 @@ export const orderDocumentSchema = mutableRecordFieldsSchema
         reason: z.string().min(3).max(500),
         actorId: actorReferenceSchema,
         cancelledAt: firestoreTimestampSchema,
+        idempotencyKey: z.string().min(16).max(160),
       })
       .strict()
       .nullable(),
     refundTotalKobo: moneySchema,
+    refundPendingKobo: moneySchema,
     assignedStaffUid: actorReferenceSchema.nullable(),
     internalNoteCount: z.number().int().nonnegative(),
     checkoutIdempotencyKey: z.string().min(16).max(160),
@@ -218,6 +223,17 @@ export const orderDocumentSchema = mutableRecordFieldsSchema
         path: ['paymentSelection'],
       });
     }
+
+    if (
+      order.refundTotalKobo + order.refundPendingKobo >
+      order.totals.amountPaidKobo
+    ) {
+      refinementContext.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Refunded and pending values cannot exceed posted payments.',
+        path: ['refundTotalKobo'],
+      });
+    }
   });
 
 export const orderItemDocumentSchema = z
@@ -253,8 +269,17 @@ export const orderEventDocumentSchema = z
       'payment.initialised',
       'payment.expired',
       'payment.confirmed',
+      'payment.manualRecorded',
+      'payment.podCollected',
       'payment.exception',
+      'pod.approved',
       'order.cancelled',
+      'refund.requested',
+      'refund.approved',
+      'refund.processing',
+      'refund.processed',
+      'refund.failed',
+      'refund.rejected',
       'fulfilment.updated',
     ]),
     previousOrderStatus: orderStatusSchema.nullable(),

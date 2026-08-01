@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { getCommerceDataSource } from '@/lib/config/commerceDataSource';
+import { loadCheckoutSettings } from '@/lib/config/checkoutSettings';
 import { getCheckoutIdentity } from '@/lib/services/carts/cartSession';
 import {
   CheckoutMutationError,
@@ -77,7 +78,8 @@ export async function createCheckoutOrderAction(formData: FormData) {
   let creationResult;
 
   try {
-    creationResult = await createCheckoutService().createOrder(identity, rawInput as never);
+    const settings = await loadCheckoutSettings();
+    creationResult = await createCheckoutService(undefined, settings).createOrder(identity, rawInput as never);
   } catch (error) {
     checkoutErrorRedirect(error);
   }

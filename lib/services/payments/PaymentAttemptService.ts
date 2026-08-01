@@ -145,7 +145,10 @@ class FirestorePaymentAttemptService {
 
       if (
         order.orderStatus !== 'awaitingPayment' ||
-        order.paymentSelection.method !== 'paystack' ||
+        !(
+          order.paymentSelection.method === 'paystack' ||
+          (order.paymentSelection.method === 'pod' && order.paymentSelection.depositKobo > 0)
+        ) ||
         reservationParse.data.state !== 'active' ||
         firestoreTimestampToDate(reservationParse.data.expiresAt).getTime() <=
           Date.now()
@@ -165,7 +168,7 @@ class FirestorePaymentAttemptService {
         provider: 'paystack',
         intendedAmountKobo: order.paymentSelection.payableNowKobo,
         currency: 'NGN',
-        attemptType: 'full',
+        attemptType: order.paymentSelection.method === 'pod' ? 'deposit' : 'full',
         idempotencyKey,
         requestHash: createHash('sha256')
           .update(`${orderId}:${idempotencyKey}:${order.paymentSelection.payableNowKobo}`)
@@ -209,7 +212,10 @@ class FirestorePaymentAttemptService {
 
     if (
       initialOrder.orderStatus !== 'awaitingPayment' ||
-      initialOrder.paymentSelection.method !== 'paystack'
+      !(
+        initialOrder.paymentSelection.method === 'paystack' ||
+        (initialOrder.paymentSelection.method === 'pod' && initialOrder.paymentSelection.depositKobo > 0)
+      )
     ) {
       throw new PaymentAttemptError(
         'INVALID_STATE',

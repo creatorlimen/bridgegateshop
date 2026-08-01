@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  actorReferenceSchema,
   firestoreDocumentIdSchema,
   firestoreTimestampSchema,
   mutableRecordFieldsSchema,
@@ -43,9 +44,9 @@ export const paymentDocumentSchema = z
   .object({
     schemaVersion: z.number().int().positive(),
     orderId: firestoreDocumentIdSchema,
-    paymentAttemptId: firestoreDocumentIdSchema,
-    method: z.literal('paystack'),
-    provider: z.literal('paystack'),
+    paymentAttemptId: firestoreDocumentIdSchema.nullable(),
+    method: z.enum(['paystack', 'manualTransfer', 'pod']),
+    provider: z.enum(['paystack', 'manual']),
     providerReference: providerReferenceSchema,
     amountKobo: moneySchema,
     currency: z.literal('NGN'),
@@ -55,8 +56,9 @@ export const paymentDocumentSchema = z
     verificationSource: z.enum(['webhook', 'reconciliation', 'manual']),
     safeResponseHash: integrityHashSchema,
     channel: z.string().min(1).max(80).nullable(),
-    providerTransactionId: z.string().min(1).max(40),
+    providerTransactionId: z.string().min(1).max(120),
     deduplicationKey: z.string().min(8).max(200),
+    recordedBy: actorReferenceSchema,
     createdAt: firestoreTimestampSchema,
   })
   .strict();

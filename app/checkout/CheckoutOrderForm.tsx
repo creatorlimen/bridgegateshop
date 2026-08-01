@@ -19,12 +19,15 @@ export function CheckoutOrderForm({
   errorMessage,
   idempotencyKey,
 }: CheckoutOrderFormProps) {
+  const defaultPaymentMethod = (
+    ['paystack', 'pod', 'manualTransfer'] as const
+  ).find((method) => checkoutSettings.paymentMethods[method].enabled);
   const canSubmit =
     cart.readyForCheckout &&
     cart.dataSource === 'firestore' &&
     cart.id !== null &&
     cart.version !== null &&
-    checkoutSettings.paymentMethods.paystack.enabled;
+    Boolean(defaultPaymentMethod);
 
   return (
     <>
@@ -84,18 +87,18 @@ export function CheckoutOrderForm({
             <h2 className="mt-2 text-xl font-black">Payment and consent</h2>
             <div className="mt-6 grid gap-3">
               {([
-                ['paystack', 'Pay online with Paystack', 'Card, bank, USSD, or another method enabled on Specta’s Paystack account.'],
-                ['pod', 'Pay on Delivery', 'Eligibility and confirmation rules await business approval.'],
-                ['manualTransfer', 'Manual Bank Transfer', 'Protected bank instructions await business approval.'],
-              ] as const).map(([value, label, description], index) => {
+                ['paystack', 'Card, bank, USSD, or another method enabled on Specta’s Paystack account.'],
+                ['pod', 'Eligibility is checked from the delivery zone, order value, customer, and selected products.'],
+                ['manualTransfer', 'Your stock is held until an authorised team member verifies the transfer.'],
+              ] as const).map(([value, description]) => {
                 const setting = checkoutSettings.paymentMethods[value];
                 return (
                   <Choice
-                    defaultChecked={index === 0 && setting.enabled}
+                    defaultChecked={value === defaultPaymentMethod}
                     description={setting.unavailableReason ?? description}
                     disabled={!setting.enabled}
                     key={value}
-                    label={label}
+                    label={setting.customerLabel}
                     name="payment"
                     value={value}
                   />
@@ -125,10 +128,10 @@ export function CheckoutOrderForm({
           <div className="mt-6 flex items-end justify-between border-t border-white/15 pt-6"><p className="text-sm text-white/60">Items subtotal</p><p className="text-2xl font-black">{formatMoney(cart.subtotalKobo)}</p></div>
           <p className="mt-2 text-[0.68rem] text-white/45">The authoritative delivery fee and grand total are calculated during order creation.</p>
           <button className="mt-6 min-h-14 w-full rounded-full bg-amber px-5 text-sm font-black text-ink disabled:cursor-not-allowed disabled:bg-white/12 disabled:text-white/45" disabled={!canSubmit} type="submit">
-            {cart.dataSource !== 'firestore' ? 'Firestore checkout is not configured' : checkoutSettings.paymentMethods.paystack.enabled ? 'Place order and continue to Paystack' : 'Paystack is not configured'}
+            {cart.dataSource !== 'firestore' ? 'Firestore checkout is not configured' : defaultPaymentMethod ? 'Place order securely' : 'No payment method is configured'}
           </button>
           {!cart.readyForCheckout ? <Link className="mt-5 inline-flex text-xs font-black underline" href="/cart">Return to cart to resolve changes</Link> : null}
-          <p className="mt-4 text-[0.68rem] leading-5 text-white/45">The server recalculates every amount and creates the order plus stock hold atomically. Only a verified Paystack result can confirm payment.</p>
+          <p className="mt-4 text-[0.68rem] leading-5 text-white/45">The server recalculates every amount, checks method eligibility, and creates the order plus stock hold atomically. Payment is posted only after method-specific verification.</p>
         </aside>
       </form>
     </>

@@ -39,6 +39,8 @@ import {
   paymentAttemptDocumentSchema,
   type PaymentAttemptDocument,
 } from '@/lib/schemas/payment';
+import { transferInstructionDocumentSchema } from '@/lib/schemas/manualPayment';
+import { calculatePodTerms } from '@/lib/utils/payments/calculatePodTerms';
 import type { CartIdentity } from '@/lib/services/carts/CartService';
 import {
   reserveCheckoutInventoryInTransaction,
@@ -195,10 +197,6 @@ class FirestoreCheckoutService {
 
     const checkoutRequestHash = hashCheckoutRequest(input);
     const orderId = getCheckoutOrderId(identity, input.idempotencyKey);
-    const paymentAttemptId =
-      input.paymentMethod === 'paystack'
-        ? getInitialPaymentAttemptId(orderId)
-        : null;
     const orderReference = this.firestore
       .collection(firestoreCollections.orders)
       .doc(orderId);
@@ -221,6 +219,11 @@ class FirestoreCheckoutService {
           );
         }
 
+        const paymentAttemptId =
+          existingOrder.paymentSelection.payableNowKobo > 0 &&
+          ['paystack', 'pod'].includes(existingOrder.paymentSelection.method)
+            ? getInitialPaymentAttemptId(orderId)
+            : null;
         const existingAttempt = paymentAttemptId
           ? parseRecord(
               await transaction.get(
@@ -368,6 +371,40 @@ class FirestoreCheckoutService {
 
       const deliveryKobo = zone?.feeKobo ?? 0;
       const grandTotalKobo = subtotalKobo + deliveryKobo;
+      const podTerms =
+        input.paymentMethod === 'pod'
+          ? calculatePodTerms(this.settings.pod, {
+              ownerUid: identity.ownerUid,
+              email: input.email,
+              fulfilmentMethod: input.fulfilmentMethod,
+              zoneId: zone?.id ?? null,
+              productIds: products.map((product) => product.id),
+              variantIds: variants.map((variant) => variant.id),
+              grandTotalKobo,
+            })
+          : null;
+
+      if (podTerms && !podTerms.eligible) {
+        throw new CheckoutMutationError(
+          'VALIDATION_FAILED',
+          podTerms.reason,
+          'paymentMethod',
+        );
+      }
+
+      const depositKobo = podTerms?.eligible ? podTerms.depositKobo : 0;
+      const payableNowKobo =
+        input.paymentMethod === 'pod' ? depositKobo : grandTotalKobo;
+      const outstandingAfterInitialPaymentKobo =
+        input.paymentMethod === 'pod'
+          ? grandTotalKobo - depositKobo
+          : 0;
+      const requiresPaystack =
+        input.paymentMethod === 'paystack' ||
+        (input.paymentMethod === 'pod' && depositKobo > 0);
+      const paymentAttemptId = requiresPaystack
+        ? getInitialPaymentAttemptId(orderId)
+        : null;
       const reservationExpiry = getReservationExpiry(
         input.paymentMethod,
         this.settings,
@@ -453,20 +490,32 @@ class FirestoreCheckoutService {
         },
         paymentSelection: {
           method: input.paymentMethod,
-          payableNowKobo: grandTotalKobo,
-          depositKobo: 0,
-          outstandingAfterInitialPaymentKobo: 0,
+          configurationVersion: this.settings.configurationVersion,
+          payableNowKobo,
+          depositKobo,
+          outstandingAfterInitialPaymentKobo,
+          podConfirmationMode:
+            input.paymentMethod === 'pod'
+              ? this.settings.pod.confirmationMode
+              : null,
+          manualTransferPartialAllowed:
+            input.paymentMethod === 'manualTransfer' &&
+            this.settings.manualTransfer.allowPartialPayments,
         },
         policyEvidence: {
           ...this.settings.policyEvidence,
           acceptedAt: now,
         },
         customerNote: input.customerNote,
-        orderStatus: 'awaitingPayment',
-        paymentStatus: input.paymentMethod === 'paystack' ? 'pending' : 'unpaid',
+        orderStatus:
+          input.paymentMethod === 'pod' && depositKobo === 0
+            ? 'pending'
+            : 'awaitingPayment',
+        paymentStatus: requiresPaystack ? 'pending' : 'unpaid',
         fulfilmentStatus: 'unfulfilled',
         cancellationSummary: null,
         refundTotalKobo: 0,
+        refundPendingKobo: 0,
         assignedStaffUid: null,
         internalNoteCount: 0,
         checkoutIdempotencyKey: input.idempotencyKey,
@@ -488,12 +537,12 @@ class FirestoreCheckoutService {
             orderReference: orderDocument.reference,
             method: 'paystack',
             provider: 'paystack',
-            intendedAmountKobo: grandTotalKobo,
+            intendedAmountKobo: payableNowKobo,
             currency: 'NGN',
-            attemptType: 'full',
+            attemptType: input.paymentMethod === 'pod' ? 'deposit' : 'full',
             idempotencyKey: `checkout-paystack:${orderId}`,
             requestHash: createHash('sha256')
-              .update(`${orderId}:${grandTotalKobo}:NGN`)
+              .update(`${orderId}:${payableNowKobo}:NGN`)
               .digest('hex'),
             providerReference: getPaystackReference(paymentAttemptId),
             initialisationState: 'pending',
@@ -556,6 +605,21 @@ class FirestoreCheckoutService {
             .collection(firestoreCollections.paymentAttempts)
             .doc(paymentAttemptId),
           paymentAttempt,
+        );
+      }
+
+      if (input.paymentMethod === 'manualTransfer') {
+        transaction.create(
+          this.firestore
+            .collection(firestoreCollections.transferInstructions)
+            .doc(orderId),
+          transferInstructionDocumentSchema.parse({
+            schemaVersion: 1,
+            orderId,
+            settingsVersion: this.settings.manualTransfer.instructionsVersion,
+            ...this.settings.manualTransfer.instructions,
+            createdAt: now,
+          }),
         );
       }
 

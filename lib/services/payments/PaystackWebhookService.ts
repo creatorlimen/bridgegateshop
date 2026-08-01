@@ -5,12 +5,14 @@ import { createHash } from 'node:crypto';
 import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 
+import { getCheckoutSettings, type CheckoutSettings } from '@/lib/config/checkoutSettings';
 import { getFirebaseAdminFirestore } from '@/lib/firebase/admin';
 import { firestoreCollections } from '@/lib/firebase/collections';
 import { firestoreTimestampToDate } from '@/lib/schemas/common';
 import {
   orderDocumentSchema,
   orderEventDocumentSchema,
+  orderItemDocumentSchema,
 } from '@/lib/schemas/order';
 import {
   paymentAttemptDocumentSchema,
@@ -27,6 +29,7 @@ import {
   type PaymentProvider,
   type VerifiedPayment,
 } from '@/lib/services/payments/PaystackClient';
+import { writeFinancialDocumentInTransaction } from '@/lib/services/payments/FinancialDocumentService';
 import { createDeterministicId } from '@/lib/services/payments/paymentReferences';
 
 const maximumWebhookBodyBytes = 256 * 1_024;
@@ -99,6 +102,7 @@ class FirestorePaystackWebhookService {
   constructor(
     private readonly firestore: Firestore,
     private readonly provider: PaymentProvider,
+    private readonly settings: CheckoutSettings,
   ) {}
 
   async processSignedEvent(
@@ -431,6 +435,16 @@ class FirestorePaystackWebhookService {
             orderDocumentSchema,
             'Order',
           );
+          const orderItemsSnapshot = await transaction.get(
+            orderReference.collection(firestoreCollections.orderItems),
+          );
+          const orderItems = orderItemsSnapshot.docs.map((snapshot) =>
+            parseStoredDocument(
+              snapshot,
+              orderItemDocumentSchema,
+              'Order item',
+            ),
+          );
           const reservationReference = this.firestore
             .collection(firestoreCollections.inventoryReservations)
             .doc(order.reservationId);
@@ -491,20 +505,27 @@ class FirestorePaystackWebhookService {
           const safeResponseHash = createHash('sha256')
             .update(verifiedPayment.safeResponseHashInput)
             .digest('hex');
+          const nextAmountPaidKobo =
+            order.totals.amountPaidKobo + verifiedPayment.amountKobo;
+          const nextAmountOutstandingKobo =
+            order.totals.grandTotalKobo - nextAmountPaidKobo;
+          const nextPaymentStatus =
+            nextAmountOutstandingKobo === 0 ? 'paid' : 'partiallyPaid';
           const nextOrder = orderDocumentSchema.parse({
             ...order,
             totals: {
               ...order.totals,
-              amountPaidKobo: verifiedPayment.amountKobo,
-              amountOutstandingKobo: 0,
+              amountPaidKobo: nextAmountPaidKobo,
+              amountOutstandingKobo: nextAmountOutstandingKobo,
             },
             orderStatus: 'confirmed',
-            paymentStatus: 'paid',
+            paymentStatus: nextPaymentStatus,
             confirmedAt: now,
             updatedAt: now,
             updatedBy: 'system:paystack-webhook',
             version: order.version + 1,
           });
+          const nextOrderRecord = { id: order.id, ...nextOrder };
 
           transaction.create(
             paymentReference,
@@ -527,10 +548,37 @@ class FirestorePaystackWebhookService {
               channel: verifiedPayment.channel,
               providerTransactionId: verifiedPayment.providerTransactionId,
               deduplicationKey: `paystack:${verifiedPayment.providerReference}`,
+              recordedBy: 'system:paystack-webhook',
               createdAt: now,
             }),
           );
           transaction.set(orderReference, orderDocumentSchema.parse(nextOrder));
+          writeFinancialDocumentInTransaction({
+            transaction,
+            firestore: this.firestore,
+            order: nextOrderRecord,
+            items: orderItems,
+            settings: this.settings,
+            documentType: 'invoice',
+            amountKobo: nextOrderRecord.totals.grandTotalKobo,
+            paymentId: null,
+            refundId: null,
+            actorId: 'system:paystack-webhook',
+            now,
+          });
+          writeFinancialDocumentInTransaction({
+            transaction,
+            firestore: this.firestore,
+            order: nextOrderRecord,
+            items: orderItems,
+            settings: this.settings,
+            documentType: 'receipt',
+            amountKobo: verifiedPayment.amountKobo,
+            paymentId,
+            refundId: null,
+            actorId: 'system:paystack-webhook',
+            now,
+          });
           transaction.create(
             orderReference
               .collection(firestoreCollections.orderEvents)
@@ -542,9 +590,13 @@ class FirestorePaystackWebhookService {
               previousOrderStatus: order.orderStatus,
               nextOrderStatus: 'confirmed',
               previousPaymentStatus: order.paymentStatus,
-              nextPaymentStatus: 'paid',
-              customerLabel: 'Payment confirmed',
-              customerNote: 'Payment was verified and your order is confirmed.',
+              nextPaymentStatus,
+              customerLabel:
+                nextPaymentStatus === 'paid' ? 'Payment confirmed' : 'Deposit confirmed',
+              customerNote:
+                nextPaymentStatus === 'paid'
+                  ? 'Payment was verified and your order is confirmed.'
+                  : 'Your deposit was verified. The outstanding balance remains due on delivery.',
               actorId: 'system:paystack-webhook',
               idempotencyKey: `payment-confirmed:${paymentId}`,
               occurredAt: now,
@@ -632,7 +684,8 @@ class FirestorePaystackWebhookService {
 export function createPaystackWebhookService(
   firestore: Firestore = getFirebaseAdminFirestore(),
   provider: PaymentProvider = new PaystackClient(),
+  settings: CheckoutSettings = getCheckoutSettings(),
 ) {
-  return new FirestorePaystackWebhookService(firestore, provider);
+  return new FirestorePaystackWebhookService(firestore, provider, settings);
 }
 

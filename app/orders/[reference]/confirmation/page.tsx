@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { retryPaystackPaymentAction } from '@/app/actions/checkout';
+import { OrderFinancialPanel } from '@/app/orders/[reference]/confirmation/OrderFinancialPanel';
 
 import { getOrderAccessProof } from '@/lib/services/carts/cartSession';
 import { createOrderRepository } from '@/lib/repositories/orders/OrderRepository';
@@ -112,6 +113,7 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pa
             <Link className="mt-7 inline-flex text-xs font-black underline" href="/shop">Continue shopping</Link>
           </aside>
         </div>
+        <OrderFinancialPanel order={order} proof={accessProof} />
       </div>
     </div>
   );
