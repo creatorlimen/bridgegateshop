@@ -4,19 +4,17 @@ import type { Firestore } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminFirestore } from '@/lib/firebase/admin';
 import { firestoreCollections } from '@/lib/firebase/collections';
+import {
+  getDefaultFulfilmentSettings,
+  loadFulfilmentSettings,
+  type BusinessCalendarSetting,
+  type DeliveryZoneSetting,
+} from '@/lib/config/fulfilmentSettings';
 import type { CheckoutPaymentMethod } from '@/lib/schemas/checkout';
 import {
   commercePaymentSettingsDocumentSchema,
   type CommercePaymentSettingsDocument,
 } from '@/lib/schemas/commerceSettings';
-
-export type DeliveryZoneSetting = {
-  id: string;
-  name: string;
-  feeKobo: number;
-  estimateLabel: string;
-  podEligible: boolean;
-};
 
 export type CheckoutSettings = {
   currency: 'NGN';
@@ -29,12 +27,14 @@ export type CheckoutSettings = {
     privacyPolicyId: string;
     privacyVersion: string;
   };
-  pickup: {
-    label: string;
-    address: string;
-    openingHours: string;
-  };
+  fulfilmentConfigurationVersion: string;
+  pickup: ReturnType<typeof getDefaultFulfilmentSettings>['pickup'];
   deliveryZones: readonly DeliveryZoneSetting[];
+  businessCalendar: readonly BusinessCalendarSetting[];
+  supportWhatsappPhone: string | null;
+  trackingRateLimit: ReturnType<
+    typeof getDefaultFulfilmentSettings
+  >['trackingRateLimit'];
   configurationVersion: string;
   pod: CommercePaymentSettingsDocument['pod'];
   manualTransfer: CommercePaymentSettingsDocument['manualTransfer'];
@@ -46,30 +46,6 @@ export type CheckoutSettings = {
     >
   >;
 };
-
-const deliveryZones: readonly DeliveryZoneSetting[] = [
-  {
-    id: 'lagos-island',
-    name: 'Lagos Island',
-    feeKobo: 500_000,
-    estimateLabel: 'Estimated delivery in 1-2 business days.',
-    podEligible: false,
-  },
-  {
-    id: 'lagos-mainland',
-    name: 'Lagos Mainland',
-    feeKobo: 350_000,
-    estimateLabel: 'Estimated delivery in 1-2 business days.',
-    podEligible: false,
-  },
-  {
-    id: 'lagos-outskirts',
-    name: 'Outskirts / Satellite Towns',
-    feeKobo: 700_000,
-    estimateLabel: 'Estimated delivery in 2-4 business days.',
-    podEligible: false,
-  },
-];
 
 const defaultPaymentSettings = {
   configurationVersion: 'placeholder-v1',
@@ -113,6 +89,7 @@ const defaultPaymentSettings = {
 
 export function getCheckoutSettings(): CheckoutSettings {
   const paystackEnabled = Boolean(process.env.PAYSTACK_SECRET_KEY);
+  const fulfilment = getDefaultFulfilmentSettings();
 
   return {
     currency: 'NGN',
@@ -125,12 +102,12 @@ export function getCheckoutSettings(): CheckoutSettings {
       privacyPolicyId: 'bridgegate-privacy',
       privacyVersion: 'placeholder-v1',
     },
-    pickup: {
-      label: 'Specta store pickup',
-      address: 'Approved Specta pickup address pending final content.',
-      openingHours: 'Approved opening hours pending final content.',
-    },
-    deliveryZones,
+    fulfilmentConfigurationVersion: fulfilment.configurationVersion,
+    pickup: fulfilment.pickup,
+    deliveryZones: fulfilment.deliveryZones,
+    businessCalendar: fulfilment.businessCalendar,
+    supportWhatsappPhone: fulfilment.supportWhatsappPhone,
+    trackingRateLimit: fulfilment.trackingRateLimit,
     ...defaultPaymentSettings,
     paymentMethods: {
       paystack: {
@@ -160,44 +137,53 @@ export async function loadCheckoutSettings(
   firestore: Firestore = getFirebaseAdminFirestore(),
 ): Promise<CheckoutSettings> {
   const fallback = getCheckoutSettings();
-  const snapshot = await firestore
-    .collection(firestoreCollections.commerceSettings)
-    .doc('payments')
-    .get();
-
-  if (!snapshot.exists) return fallback;
-
-  const parsed = commercePaymentSettingsDocumentSchema.safeParse(snapshot.data());
-  if (!parsed.success) {
+  const [snapshot, fulfilment] = await Promise.all([
+    firestore
+      .collection(firestoreCollections.commerceSettings)
+      .doc('payments')
+      .get(),
+    loadFulfilmentSettings(firestore),
+  ]);
+  const parsed = snapshot.exists
+    ? commercePaymentSettingsDocumentSchema.safeParse(snapshot.data())
+    : null;
+  if (parsed && !parsed.success) {
     throw new Error('The stored commerce payment settings are invalid.');
   }
 
-  const stored = parsed.data;
+  const stored = parsed?.success ? parsed.data : null;
   return {
     ...fallback,
-    configurationVersion: stored.configurationVersion,
-    podReservationMinutes: stored.pod.holdMinutes,
-    manualTransferReservationHours: stored.manualTransfer.holdHours,
-    pod: stored.pod,
-    manualTransfer: stored.manualTransfer,
-    financialDocuments: stored.financialDocuments,
-    deliveryZones: fallback.deliveryZones.map((zone) => ({
+    fulfilmentConfigurationVersion: fulfilment.configurationVersion,
+    pickup: fulfilment.pickup,
+    deliveryZones: fulfilment.deliveryZones.map((zone) => ({
       ...zone,
-      podEligible: stored.pod.allowedZoneIds.includes(zone.id),
+      podEligible:
+        zone.podEligible && Boolean(stored?.pod.allowedZoneIds.includes(zone.id)),
     })),
+    businessCalendar: fulfilment.businessCalendar,
+    supportWhatsappPhone: fulfilment.supportWhatsappPhone,
+    trackingRateLimit: fulfilment.trackingRateLimit,
+    configurationVersion: stored?.configurationVersion ?? fallback.configurationVersion,
+    podReservationMinutes: stored?.pod.holdMinutes ?? fallback.podReservationMinutes,
+    manualTransferReservationHours:
+      stored?.manualTransfer.holdHours ?? fallback.manualTransferReservationHours,
+    pod: stored?.pod ?? fallback.pod,
+    manualTransfer: stored?.manualTransfer ?? fallback.manualTransfer,
+    financialDocuments: stored?.financialDocuments ?? fallback.financialDocuments,
     paymentMethods: {
       ...fallback.paymentMethods,
       pod: {
-        enabled: stored.pod.enabled,
+        enabled: stored?.pod.enabled ?? false,
         customerLabel: 'Pay on Delivery',
-        unavailableReason: stored.pod.enabled
+        unavailableReason: stored?.pod.enabled
           ? null
           : fallback.paymentMethods.pod.unavailableReason,
       },
       manualTransfer: {
-        enabled: stored.manualTransfer.enabled,
+        enabled: stored?.manualTransfer.enabled ?? false,
         customerLabel: 'Manual Bank Transfer',
-        unavailableReason: stored.manualTransfer.enabled
+        unavailableReason: stored?.manualTransfer.enabled
           ? null
           : fallback.paymentMethods.manualTransfer.unavailableReason,
       },

@@ -63,6 +63,19 @@ const deliveryAddressSnapshotSchema = z
   })
   .strict();
 
+const deliveryEstimateSnapshotSchema = z
+  .object({
+    configurationVersion: z.string().min(1).max(120),
+    calculatedAt: firestoreTimestampSchema,
+    localPlacementDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    earliestDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    latestDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    sameDayQualified: z.boolean(),
+    label: z.string().min(3).max(240),
+    assumptions: z.array(z.string().min(1).max(160)).max(20),
+  })
+  .strict();
+
 const fulfilmentSnapshotSchema = z
   .object({
     method: z.enum(['delivery', 'pickup']),
@@ -70,7 +83,9 @@ const fulfilmentSnapshotSchema = z
     zoneId: firestoreDocumentIdSchema.nullable(),
     zoneName: z.string().min(1).max(120).nullable(),
     feeKobo: moneySchema,
+    configurationVersion: z.string().min(1).max(120),
     estimateLabel: z.string().min(1).max(240),
+    estimate: deliveryEstimateSnapshotSchema,
     pickupLabel: z.string().min(1).max(160).nullable(),
     pickupAddress: z.string().min(1).max(500).nullable(),
     pickupOpeningHours: z.string().min(1).max(500).nullable(),

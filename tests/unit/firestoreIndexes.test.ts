@@ -28,6 +28,8 @@ describe('Firestore index manifest', () => {
         'carts|ownerUid:ascending|status:ascending',
         'orders|ownerUid:ascending|placedAt:descending',
         'financialDocuments|ownerUid:ascending|issuedAt:descending',
+        'outboxEvents|eventName:ascending|state:ascending|nextAttemptAt:ascending',
+        'deliveries|status:ascending|estimate.latestDate:ascending',
       ]),
     );
   });

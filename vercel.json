@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/reservations",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/outbox",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/delivery-exceptions",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}

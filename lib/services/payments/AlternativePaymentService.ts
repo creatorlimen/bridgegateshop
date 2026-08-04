@@ -266,6 +266,14 @@ class FirestoreAlternativePaymentService {
       const nextPaidKobo = order.totals.amountPaidKobo + input.amountKobo;
       const nextOutstandingKobo = order.totals.grandTotalKobo - nextPaidKobo;
       const completesPayment = nextOutstandingKobo === 0;
+      const terminalFulfilment = ['delivered', 'collected'].includes(
+        order.fulfilmentStatus,
+      );
+      const nextOrderStatus = completesPayment
+        ? terminalFulfilment
+          ? 'completed'
+          : order.orderStatus === 'processing' ? 'processing' : 'confirmed'
+        : order.orderStatus;
       if (method === 'manualTransfer' && completesPayment) {
         await commitCheckoutInventoryInTransaction({
           transaction,
@@ -284,9 +292,10 @@ class FirestoreAlternativePaymentService {
           amountPaidKobo: nextPaidKobo,
           amountOutstandingKobo: nextOutstandingKobo,
         },
-        orderStatus: completesPayment ? 'confirmed' : order.orderStatus,
+        orderStatus: nextOrderStatus,
         paymentStatus: completesPayment ? 'paid' : 'partiallyPaid',
         confirmedAt: completesPayment ? order.confirmedAt ?? now : order.confirmedAt,
+        completedAt: completesPayment && terminalFulfilment ? now : order.completedAt,
         updatedAt: now,
         updatedBy: actor.actorId,
         version: order.version + 1,

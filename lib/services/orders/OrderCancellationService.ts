@@ -6,6 +6,10 @@ import { z } from 'zod';
 import type { Role } from '@/lib/auth/roles';
 import { getFirebaseAdminFirestore } from '@/lib/firebase/admin';
 import { firestoreCollections } from '@/lib/firebase/collections';
+import {
+  deliveryDocumentSchema,
+  deliveryEventDocumentSchema,
+} from '@/lib/schemas/fulfilment';
 import { inventoryReservationDocumentSchema } from '@/lib/schemas/inventory';
 import { orderDocumentSchema, orderEventDocumentSchema } from '@/lib/schemas/order';
 import { writeAuditEvent } from '@/lib/services/audit/writeAuditEvent';
@@ -60,11 +64,25 @@ class FirestoreOrderCancellationService {
       const reservationReference = this.firestore
         .collection(firestoreCollections.inventoryReservations)
         .doc(order.reservationId);
-      const [reservationSnapshot, eventSnapshot] = await transaction.getAll(
+      const deliveryReference = this.firestore
+        .collection(firestoreCollections.deliveries)
+        .doc(order.id);
+      const deliveryEventReference = deliveryReference
+        .collection(firestoreCollections.deliveryEvents)
+        .doc(createDeterministicId('delivery-event', `cancel:${input.idempotencyKey}`));
+      const [reservationSnapshot, eventSnapshot, deliverySnapshot, deliveryEventSnapshot] = await transaction.getAll(
         reservationReference,
         eventReference,
+        deliveryReference,
+        deliveryEventReference,
       );
       if (eventSnapshot.exists) return { order, replay: true };
+      const deliveryParse = deliverySnapshot.exists
+        ? deliveryDocumentSchema.safeParse(deliverySnapshot.data())
+        : null;
+      if (deliverySnapshot.exists && !deliveryParse?.success) {
+        throw new OrderCancellationError('INVALID_STATE', 'Linked delivery data is invalid.');
+      }
       if (order.version !== input.expectedOrderVersion) {
         throw new OrderCancellationError('CONFLICT', 'The order changed before cancellation.');
       }
@@ -111,6 +129,31 @@ class FirestoreOrderCancellationService {
         version: order.version + 1,
       });
       transaction.set(orderReference, nextOrderDocument);
+      if (deliveryParse?.success) {
+        const delivery = deliveryParse.data;
+        transaction.set(deliveryReference, deliveryDocumentSchema.parse({
+          ...delivery,
+          status: 'cancelled',
+          updatedAt: now,
+          updatedBy: actor.actorId,
+          version: delivery.version + 1,
+        }));
+        if (!deliveryEventSnapshot.exists) transaction.create(deliveryEventReference, deliveryEventDocumentSchema.parse({
+          schemaVersion: 1,
+          deliveryId: order.id,
+          orderId: order.id,
+          eventType: 'fulfilment.updated',
+          transitionType: 'forward',
+          previousStatus: delivery.status,
+          nextStatus: 'cancelled',
+          customerLabel: 'Order cancelled',
+          customerNote: 'The order was cancelled through an authorised review.',
+          internalNote: input.reason,
+          actorId: actor.actorId,
+          idempotencyKey: input.idempotencyKey,
+          occurredAt: now,
+        }));
+      }
       transaction.create(eventReference, orderEventDocumentSchema.parse({
         schemaVersion: 1,
         orderId: order.id,

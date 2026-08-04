@@ -29,6 +29,10 @@ let testEnvironment: RulesTestEnvironment;
 const settings: CheckoutSettings = {
   ...getCheckoutSettings(),
   configurationVersion: 'stage7-test-v1',
+  deliveryZones: getCheckoutSettings().deliveryZones.map((zone) => ({
+    ...zone,
+    podEligible: zone.id === 'lagos-mainland',
+  })),
   podReservationMinutes: 60,
   manualTransferReservationHours: 24,
   pod: {

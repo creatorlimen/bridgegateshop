@@ -19,6 +19,12 @@ export function CheckoutOrderForm({
   errorMessage,
   idempotencyKey,
 }: CheckoutOrderFormProps) {
+  const deliveryZones = checkoutSettings.deliveryZones.filter(
+    (zone) => zone.active && zone.deliveryEnabled,
+  );
+  const deliveryAvailable = deliveryZones.length > 0;
+  const pickupAvailable = checkoutSettings.pickup.enabled;
+  const defaultFulfilmentMethod = deliveryAvailable ? 'delivery' : pickupAvailable ? 'pickup' : null;
   const defaultPaymentMethod = (
     ['paystack', 'pod', 'manualTransfer'] as const
   ).find((method) => checkoutSettings.paymentMethods[method].enabled);
@@ -27,6 +33,7 @@ export function CheckoutOrderForm({
     cart.dataSource === 'firestore' &&
     cart.id !== null &&
     cart.version !== null &&
+    Boolean(defaultFulfilmentMethod) &&
     Boolean(defaultPaymentMethod);
 
   return (
@@ -56,16 +63,16 @@ export function CheckoutOrderForm({
             <fieldset className="mt-7">
               <legend className="text-sm font-black">Fulfilment method</legend>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <Choice defaultChecked description="Zone and fee are resolved again by the server." label="Lagos delivery" name="fulfilment" value="delivery" />
-                <Choice description="No delivery fee; pickup details are snapshotted with the order." label="Store pickup" name="fulfilment" value="pickup" />
+                <Choice defaultChecked={defaultFulfilmentMethod === 'delivery'} description="Zone and fee are resolved again by the server." disabled={!deliveryAvailable} label="Lagos delivery" name="fulfilment" value="delivery" />
+                <Choice defaultChecked={defaultFulfilmentMethod === 'pickup'} description="No delivery fee; pickup details are snapshotted with the order." disabled={!pickupAvailable} label="Store pickup" name="fulfilment" value="pickup" />
               </div>
             </fieldset>
 
             <div className="mt-7 grid gap-5 sm:grid-cols-2">
               <label className="grid gap-2 text-sm font-bold sm:col-span-2">
                 Delivery zone
-                <select className="min-h-12 rounded-xl border border-ink/15 bg-canvas px-4 font-normal" defaultValue={checkoutSettings.deliveryZones[0]?.id} name="deliveryZoneId">
-                  {checkoutSettings.deliveryZones.map((zone) => (
+                <select className="min-h-12 rounded-xl border border-ink/15 bg-canvas px-4 font-normal" defaultValue={deliveryZones[0]?.id} disabled={!deliveryAvailable} name="deliveryZoneId">
+                  {deliveryZones.map((zone) => (
                     <option key={zone.id} value={zone.id}>{zone.name} · {formatMoney(zone.feeKobo)}</option>
                   ))}
                 </select>

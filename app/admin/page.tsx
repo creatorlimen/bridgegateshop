@@ -71,6 +71,48 @@ export default async function AdminPage() {
             </p>
           </Link>
         ) : null}
+        {staffContext.permissions.has('deliveries.read') ? (
+          <Link
+            className="rounded-2xl border border-ink/10 bg-paper p-6 transition hover:-translate-y-1"
+            href="/admin/delivery"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-clay">
+              Fulfilment
+            </p>
+            <h2 className="mt-3 text-xl font-black">Manage deliveries →</h2>
+            <p className="mt-2 text-sm text-muted">
+              Delivery and pickup transitions, tracking, and exceptions.
+            </p>
+          </Link>
+        ) : null}
+        {staffContext.permissions.has('settings.commerce.write') ? (
+          <Link
+            className="rounded-2xl border border-ink/10 bg-paper p-6 transition hover:-translate-y-1"
+            href="/admin/settings/fulfilment"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-clay">
+              Settings
+            </p>
+            <h2 className="mt-3 text-xl font-black">Configure fulfilment →</h2>
+            <p className="mt-2 text-sm text-muted">
+              Versioned zones, fees, service days, cut-offs, pickup, and calendar.
+            </p>
+          </Link>
+        ) : null}
+        {staffContext.permissions.has('settings.commerce.write') ? (
+          <Link
+            className="rounded-2xl border border-ink/10 bg-paper p-6 transition hover:-translate-y-1"
+            href="/admin/settings/notifications"
+          >
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-clay">
+              Notifications
+            </p>
+            <h2 className="mt-3 text-xl font-black">Configure messages →</h2>
+            <p className="mt-2 text-sm text-muted">
+              Provider health, channel policy, and customer message templates.
+            </p>
+          </Link>
+        ) : null}
       </div>
     </section>
   );

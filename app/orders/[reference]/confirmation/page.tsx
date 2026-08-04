@@ -8,6 +8,7 @@ import { OrderFinancialPanel } from '@/app/orders/[reference]/confirmation/Order
 import { getOrderAccessProof } from '@/lib/services/carts/cartSession';
 import { createOrderRepository } from '@/lib/repositories/orders/OrderRepository';
 import { firestoreTimestampToDate } from '@/lib/schemas/common';
+import { createTrackingService } from '@/lib/services/fulfilment/TrackingService';
 import { formatMoney } from '@/lib/utils/money/formatMoney';
 
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,9 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pa
   if (!snapshot) notFound();
 
   const { order, items, events, attempts } = snapshot;
+  const ownerTracking = await createTrackingService()
+    .lookupForOwner(reference, accessProof)
+    .catch(() => null);
   const retryEligible = order.orderStatus === 'awaitingPayment' && attempts.some((attempt) => attempt.initialisationState === 'failed');
   const placedAt = new Intl.DateTimeFormat('en-NG', {
     dateStyle: 'medium',
@@ -113,6 +117,44 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pa
             <Link className="mt-7 inline-flex text-xs font-black underline" href="/shop">Continue shopping</Link>
           </aside>
         </div>
+        {ownerTracking ? (
+          <section className="mt-6 rounded-[1.75rem] border border-ink/10 bg-paper p-6 sm:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="eyebrow text-clay">Live fulfilment tracking</p>
+                <h2 className="mt-3 text-2xl font-black">{ownerTracking.statusLabel}</h2>
+                <p className="mt-2 text-sm text-muted">
+                  {ownerTracking.destinationLabel} · {ownerTracking.estimate.label}
+                </p>
+              </div>
+              {ownerTracking.supportWhatsappUrl ? (
+                <a
+                  className="rounded-full border border-ink/15 px-4 py-2 text-xs font-black"
+                  href={ownerTracking.supportWhatsappUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Contact support
+                </a>
+              ) : null}
+            </div>
+            <ol className="mt-6 grid gap-4">
+              {ownerTracking.timeline.map((event) => (
+                <li className="border-l-2 border-amber pl-4" key={event.id}>
+                  <p className="text-sm font-black">{event.label}</p>
+                  {event.note ? <p className="mt-1 text-xs text-muted">{event.note}</p> : null}
+                  <time className="mt-1 block text-xs text-muted" dateTime={event.occurredAt}>
+                    {new Intl.DateTimeFormat('en-NG', {
+                      dateStyle: 'medium',
+                      timeStyle: 'short',
+                      timeZone: 'Africa/Lagos',
+                    }).format(new Date(event.occurredAt))}
+                  </time>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
         <OrderFinancialPanel order={order} proof={accessProof} />
       </div>
     </div>

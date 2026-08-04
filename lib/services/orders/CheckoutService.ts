@@ -41,7 +41,9 @@ import {
 } from '@/lib/schemas/payment';
 import { transferInstructionDocumentSchema } from '@/lib/schemas/manualPayment';
 import { calculatePodTerms } from '@/lib/utils/payments/calculatePodTerms';
+import { calculateDeliveryEstimate } from '@/lib/utils/fulfilment/calculateDeliveryEstimate';
 import type { CartIdentity } from '@/lib/services/carts/CartService';
+import { createDeliveryDocument } from '@/lib/services/fulfilment/createDeliveryRecord';
 import {
   reserveCheckoutInventoryInTransaction,
 } from '@/lib/services/inventory/inventoryTransactionOperations';
@@ -358,16 +360,54 @@ class FirestoreCheckoutService {
         input.fulfilmentMethod === 'delivery'
           ? this.settings.deliveryZones.find(
               (candidate) => candidate.id === input.deliveryAddress.zoneId,
-            )
+            ) ?? null
           : null;
 
-      if (input.fulfilmentMethod === 'delivery' && !zone) {
+      if (
+        input.fulfilmentMethod === 'delivery' &&
+        (!zone || !zone.active || !zone.deliveryEnabled)
+      ) {
         throw new CheckoutMutationError(
           'VALIDATION_FAILED',
           'Select an available Lagos delivery zone.',
           'deliveryZoneId',
         );
       }
+      if (input.fulfilmentMethod === 'pickup' && !this.settings.pickup.enabled) {
+        throw new CheckoutMutationError(
+          'VALIDATION_FAILED',
+          'Store pickup is currently unavailable.',
+          'fulfilmentMethod',
+        );
+      }
+      const schedule =
+        input.fulfilmentMethod === 'delivery' && zone
+          ? {
+              serviceDays: zone.serviceDays,
+              cutoffLocalTime: zone.cutoffLocalTime,
+              sameDayEnabled: zone.sameDayEnabled,
+              minimumBusinessDays: zone.minimumBusinessDays,
+              maximumBusinessDays: zone.maximumBusinessDays,
+            }
+          : {
+              serviceDays: this.settings.pickup.serviceDays,
+              cutoffLocalTime: this.settings.pickup.cutoffLocalTime,
+              sameDayEnabled: this.settings.pickup.sameDayEnabled,
+              minimumBusinessDays:
+                this.settings.pickup.minimumPreparationBusinessDays,
+              maximumBusinessDays:
+                this.settings.pickup.maximumPreparationBusinessDays,
+            };
+      const calculatedEstimate = calculateDeliveryEstimate({
+        now: now.toDate(),
+        configurationVersion: this.settings.fulfilmentConfigurationVersion,
+        method: input.fulfilmentMethod,
+        zoneId: zone?.id ?? null,
+        schedule,
+        closures: this.settings.businessCalendar,
+        stockImmediatelyAvailable: true,
+      });
+      const fulfilmentEstimate = { ...calculatedEstimate, calculatedAt: now };
 
       const deliveryKobo = zone?.feeKobo ?? 0;
       const grandTotalKobo = subtotalKobo + deliveryKobo;
@@ -384,6 +424,17 @@ class FirestoreCheckoutService {
             })
           : null;
 
+      if (
+        input.paymentMethod === 'pod' &&
+        input.fulfilmentMethod === 'delivery' &&
+        !zone?.podEligible
+      ) {
+        throw new CheckoutMutationError(
+          'VALIDATION_FAILED',
+          'Pay on Delivery is unavailable for this delivery zone.',
+          'paymentMethod',
+        );
+      }
       if (podTerms && !podTerms.eligible) {
         throw new CheckoutMutationError(
           'VALIDATION_FAILED',
@@ -463,7 +514,9 @@ class FirestoreCheckoutService {
                 zoneId: zone?.id ?? null,
                 zoneName: zone?.name ?? null,
                 feeKobo: deliveryKobo,
-                estimateLabel: zone?.estimateLabel ?? 'Delivery estimate pending.',
+                configurationVersion: this.settings.fulfilmentConfigurationVersion,
+                estimateLabel: fulfilmentEstimate.label,
+                estimate: fulfilmentEstimate,
                 pickupLabel: null,
                 pickupAddress: null,
                 pickupOpeningHours: null,
@@ -474,7 +527,9 @@ class FirestoreCheckoutService {
                 zoneId: null,
                 zoneName: null,
                 feeKobo: 0,
-                estimateLabel: 'Pickup timing is confirmed after order acceptance.',
+                configurationVersion: this.settings.fulfilmentConfigurationVersion,
+                estimateLabel: fulfilmentEstimate.label,
+                estimate: fulfilmentEstimate,
                 pickupLabel: this.settings.pickup.label,
                 pickupAddress: this.settings.pickup.address,
                 pickupOpeningHours: this.settings.pickup.openingHours,
@@ -530,6 +585,14 @@ class FirestoreCheckoutService {
         updatedBy: identity.ownerUid ?? 'system:guest-checkout',
         version: 1,
       });
+      const deliveryDocument = createDeliveryDocument({
+        orderId,
+        order: orderDocument,
+        settings: this.settings,
+        zone,
+        estimate: fulfilmentEstimate,
+        now,
+      });
       const paymentAttempt = paymentAttemptId
         ? paymentAttemptDocumentSchema.parse({
             schemaVersion: 1,
@@ -561,6 +624,10 @@ class FirestoreCheckoutService {
         : null;
 
       transaction.create(orderReference, orderDocument);
+      transaction.create(
+        this.firestore.collection(firestoreCollections.deliveries).doc(orderId),
+        deliveryDocument,
+      );
       for (const orderItem of orderItems) {
         transaction.create(
           orderReference

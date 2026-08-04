@@ -4,6 +4,10 @@ import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminFirestore } from '@/lib/firebase/admin';
 import { firestoreCollections } from '@/lib/firebase/collections';
+import {
+  deliveryDocumentSchema,
+  deliveryEventDocumentSchema,
+} from '@/lib/schemas/fulfilment';
 import { productVariantDocumentSchema } from '@/lib/schemas/catalogue';
 import {
   inventoryBalanceDocumentSchema,
@@ -83,11 +87,15 @@ class FirestoreOrderReservationExpiryService {
     const orderReference = this.firestore
       .collection(firestoreCollections.orders)
       .doc(orderId);
+    const deliveryReference = this.firestore
+      .collection(firestoreCollections.deliveries)
+      .doc(orderId);
 
     return this.firestore.runTransaction(async (transaction) => {
-      const [reservationSnapshot, orderSnapshot] = await transaction.getAll(
+      const [reservationSnapshot, orderSnapshot, deliverySnapshot] = await transaction.getAll(
         reservationReference,
         orderReference,
+        deliveryReference,
       );
       const reservation = parseReservation(reservationSnapshot);
       if (reservation.state === 'expired') return { replay: true };
@@ -100,6 +108,12 @@ class FirestoreOrderReservationExpiryService {
         throw new InventoryMutationError('INVALID_STATE', 'Linked order data is invalid.');
       }
       const order = { id: orderSnapshot.id, ...orderParse.data };
+      const deliveryParse = deliverySnapshot.exists
+        ? deliveryDocumentSchema.safeParse(deliverySnapshot.data())
+        : null;
+      if (deliverySnapshot.exists && !deliveryParse?.success) {
+        throw new InventoryMutationError('INVALID_STATE', 'Linked delivery data is invalid.');
+      }
       const variants = (
         await transaction.getAll(
           ...reservation.lines.map((line) =>
@@ -169,6 +183,7 @@ class FirestoreOrderReservationExpiryService {
       const nextOrder = orderDocumentSchema.parse({
         ...order,
         orderStatus: 'failed',
+        fulfilmentStatus: 'cancelled',
         paymentStatus: nextPaymentStatus,
         updatedAt: timestamp,
         updatedBy: 'system:reservation-expiry',
@@ -177,6 +192,36 @@ class FirestoreOrderReservationExpiryService {
 
       transaction.set(reservationReference, nextReservation);
       transaction.set(orderReference, nextOrder);
+      if (deliveryParse?.success) {
+        const delivery = deliveryParse.data;
+        transaction.set(deliveryReference, deliveryDocumentSchema.parse({
+          ...delivery,
+          status: 'cancelled',
+          updatedAt: timestamp,
+          updatedBy: 'system:reservation-expiry',
+          version: delivery.version + 1,
+        }));
+        transaction.create(
+          deliveryReference.collection(firestoreCollections.deliveryEvents).doc(
+            createDeterministicId('delivery-event', `${reservationId}:expired`),
+          ),
+          deliveryEventDocumentSchema.parse({
+            schemaVersion: 1,
+            deliveryId: orderId,
+            orderId,
+            eventType: 'fulfilment.updated',
+            transitionType: 'forward',
+            previousStatus: delivery.status,
+            nextStatus: 'cancelled',
+            customerLabel: 'Payment window expired',
+            customerNote: 'The stock hold ended before the order could be confirmed.',
+            internalNote: 'Reservation expiry closed fulfilment automatically.',
+            actorId: 'system:reservation-expiry',
+            idempotencyKey: `order-expired:${reservationId}`,
+            occurredAt: timestamp,
+          }),
+        );
+      }
       for (const nextBalance of nextBalances.values()) {
         transaction.set(
           this.firestore.collection(firestoreCollections.inventoryBalances).doc(nextBalance.id),
